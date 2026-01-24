@@ -79,6 +79,15 @@
     return filteredVariables().filter(v => map.get(v.variableId)?.enabled).length;
   });
 
+  // Find orphaned MQTT entries (enabled for variables that don't exist)
+  const orphanedEntries = $derived(() => {
+    if (!mqttConfig?.variables) return [];
+    const variableIds = new Set(variables.map(v => v.variableId));
+    return mqttConfig.variables.filter(entry =>
+      entry.enabled && !variableIds.has(entry.variableId)
+    );
+  });
+
   onMount(async () => {
     await loadData();
   });
@@ -476,6 +485,61 @@
         <span class="filter-enabled">
           {enabledInFilter()} enabled in view
         </span>
+      </div>
+    {/if}
+
+    {#if orphanedEntries().length > 0}
+      <div class="orphaned-section">
+        <div class="orphaned-header">
+          <div class="orphaned-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <h3>Orphaned MQTT Entries</h3>
+            <span class="orphaned-count">{orphanedEntries().length} entries</span>
+          </div>
+          <p class="orphaned-desc">
+            These variables are enabled for MQTT but don't exist in the current tag list.
+            They may have been deleted or renamed in the PLC.
+          </p>
+        </div>
+        <div class="orphaned-list">
+          {#each orphanedEntries() as entry (entry.variableId)}
+            <div class="orphaned-item">
+              <span class="orphaned-name">{entry.variableId}</span>
+              <button
+                class="btn btn-sm btn-secondary"
+                onclick={() => toggleSingleVariable(entry.variableId, true)}
+                disabled={saving}
+              >
+                Remove
+              </button>
+            </div>
+          {/each}
+        </div>
+        <button
+          class="btn btn-secondary orphaned-clear-all"
+          onclick={async () => {
+            saving = true;
+            try {
+              const variableIds = orphanedEntries().map(e => e.variableId);
+              await graphql(`
+                mutation($projectId: String!, $variableIds: [String!]!) {
+                  disableMqttVariables(projectId: $projectId, variableIds: $variableIds)
+                }
+              `, { projectId: $page.params.projectId, variableIds });
+              await loadData();
+            } catch (e) {
+              error = e instanceof Error ? e.message : 'Failed to remove orphaned entries';
+            }
+            saving = false;
+          }}
+          disabled={saving}
+        >
+          Remove All Orphaned
+        </button>
       </div>
     {/if}
   </div>
@@ -924,5 +988,77 @@
   .empty-state h3 {
     margin-bottom: 0.5rem;
     color: var(--theme-text);
+  }
+
+  // Orphaned entries section
+  .orphaned-section {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: var(--rounded-xl);
+  }
+
+  .orphaned-header {
+    margin-bottom: 1rem;
+  }
+
+  .orphaned-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+
+    svg {
+      color: var(--amber-600);
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 1rem;
+      color: var(--amber-600);
+    }
+  }
+
+  .orphaned-count {
+    font-size: 0.75rem;
+    padding: 0.125rem 0.5rem;
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--amber-600);
+    border-radius: var(--rounded-full);
+  }
+
+  .orphaned-desc {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--theme-text-muted);
+  }
+
+  .orphaned-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .orphaned-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    background: var(--theme-surface);
+    border-radius: var(--rounded-md);
+  }
+
+  .orphaned-name {
+    font-family: monospace;
+    font-size: 0.8125rem;
+    color: var(--theme-text);
+  }
+
+  .orphaned-clear-all {
+    width: 100%;
   }
 </style>
