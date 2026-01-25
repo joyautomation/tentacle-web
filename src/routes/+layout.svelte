@@ -12,9 +12,15 @@
   <aside class="sidebar">
     <div class="sidebar-header">
       <a href="/" class="logo">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        <svg width="28" height="28" viewBox="0 0 100 100" fill="none">
+          <!-- Tentacle logo - curved arrangement of ovals -->
+          <ellipse cx="15" cy="75" rx="12" ry="8" fill="#f97316" transform="rotate(-25 15 75)"/>
+          <ellipse cx="28" cy="58" rx="11" ry="7" fill="#f97316" transform="rotate(-15 28 58)"/>
+          <ellipse cx="38" cy="42" rx="10" ry="6.5" fill="#f97316" transform="rotate(-5 38 42)"/>
+          <ellipse cx="45" cy="27" rx="9" ry="6" fill="#f97316" transform="rotate(5 45 27)"/>
+          <ellipse cx="55" cy="15" rx="8" ry="5.5" fill="#f97316" transform="rotate(15 55 15)"/>
+          <ellipse cx="68" cy="8" rx="7" ry="5" fill="#f97316" transform="rotate(25 68 8)"/>
+          <ellipse cx="82" cy="6" rx="6" ry="4.5" fill="#f97316" transform="rotate(35 82 6)"/>
         </svg>
         <span>Tentacle</span>
       </a>
@@ -75,15 +81,11 @@
   .logo {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     font-family: 'Righteous', sans-serif;
     font-size: 1.25rem;
-    color: var(--theme-primary);
+    color: var(--theme-text);
     text-decoration: none;
-
-    svg {
-      color: var(--theme-primary);
-    }
   }
 
   .sidebar-nav {
