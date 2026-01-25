@@ -22,7 +22,37 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let viewMode = $state<ViewMode>('tree');
+  let browsing = $state(false);
   let unsubscribe: (() => void) | null = null;
+
+  async function handleBrowse() {
+    browsing = true;
+    error = null;
+    try {
+      const result = await graphql<{ browseTags: Variable[] }>(`
+        mutation($projectId: String!) {
+          browseTags(projectId: $projectId) {
+            projectId
+            variableId
+            value
+            datatype
+            quality
+            source
+            lastUpdated
+          }
+        }
+      `, { projectId: $page.params.projectId });
+
+      if (result.errors) {
+        error = result.errors[0].message;
+      } else if (result.data) {
+        variables = result.data.browseTags;
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Browse failed';
+    }
+    browsing = false;
+  }
 
   onMount(async () => {
     // Initial load
@@ -106,6 +136,24 @@
     <div class="header-left">
       <h2>Variables</h2>
       <span class="variable-count">{variables.length} variables</span>
+      <button
+        class="browse-btn"
+        onclick={handleBrowse}
+        disabled={browsing}
+      >
+        {#if browsing}
+          <svg class="spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+          Browsing...
+        {:else}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+          Browse PLC
+        {/if}
+      </button>
     </div>
     <div class="view-toggle">
       <button
@@ -202,6 +250,40 @@
   .variable-count {
     font-size: 0.875rem;
     color: var(--theme-text-muted);
+  }
+
+  .browse-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border: 1px solid var(--theme-border);
+    border-radius: var(--rounded-lg);
+    background: var(--theme-surface);
+    color: var(--theme-text);
+    cursor: pointer;
+    transition: all 0.15s;
+
+    &:hover:not(:disabled) {
+      background: var(--theme-surface-hover);
+      border-color: var(--theme-primary);
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .view-toggle {
