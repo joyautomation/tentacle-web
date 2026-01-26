@@ -2,31 +2,49 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { graphql } from '$lib/graphql/client';
+  import NetworkTopology from '$lib/components/NetworkTopology.svelte';
 
-  interface Variable {
-    variableId: string;
-    value: unknown;
-    datatype: string;
-    quality: string;
-    source: string;
+  interface Service {
+    serviceType: string;
+    instanceId: string;
+    projectId: string;
+    uptime: number;
+    metadata?: Record<string, unknown>;
+  }
+
+  interface Device {
+    id: string;
+    host: string;
+    port: number;
+    enabled: boolean;
   }
 
   const projectId = $derived($page.params.projectId);
 
-  let variables = $state<Variable[]>([]);
+  let services = $state<Service[]>([]);
+  let devices = $state<Device[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
   onMount(async () => {
     try {
-      const result = await graphql<{ variables: Variable[] }>(`
+      const result = await graphql<{
+        services: Service[];
+        devices: Device[];
+      }>(`
         query($projectId: String!) {
-          variables(projectId: $projectId) {
-            variableId
-            value
-            datatype
-            quality
-            source
+          services(projectId: $projectId) {
+            serviceType
+            instanceId
+            projectId
+            uptime
+            metadata
+          }
+          devices(projectId: $projectId) {
+            id
+            host
+            port
+            enabled
           }
         }
       `, { projectId: $page.params.projectId });
@@ -34,67 +52,50 @@
       if (result.errors) {
         error = result.errors[0].message;
       } else if (result.data) {
-        variables = result.data.variables;
+        services = result.data.services;
+        devices = result.data.devices;
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load variables';
+      error = e instanceof Error ? e.message : 'Failed to load project data';
     }
     loading = false;
   });
 
-  const variableCount = $derived(variables.length);
-  const goodQualityCount = $derived(variables.filter(v => v.quality === 'good').length);
+  const isConnected = $derived(services.length > 0);
 </script>
 
 <div class="page">
   <header class="page-header">
     <h1>{projectId}</h1>
-    <span class="status status-connected">Connected</span>
+    {#if loading}
+      <span class="status status-loading">Loading...</span>
+    {:else if isConnected}
+      <span class="status status-connected">Connected</span>
+    {:else}
+      <span class="status status-disconnected">No Services</span>
+    {/if}
   </header>
 
   <div class="content">
     {#if loading}
-      <div class="loading">Loading project data...</div>
+      <section class="topology-section">
+        <h2>System Topology</h2>
+        <div class="topology-loading">
+          <div class="spinner"></div>
+          <p>Loading topology...</p>
+        </div>
+      </section>
     {:else if error}
       <div class="info-box error">
         <h3>Error Loading Project</h3>
         <p>{error}</p>
       </div>
     {:else}
-      <div class="stats-grid">
-        <div class="stat-card">
-          <span class="stat-value">{variableCount}</span>
-          <span class="stat-label">Variables</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-value">{goodQualityCount}</span>
-          <span class="stat-label">Good Quality</span>
-        </div>
-      </div>
-
-      <div class="quick-links">
-        <a href="/projects/{projectId}/variables" class="card card-interactive quick-link">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M4 7h16M4 12h16M4 17h10"/>
-          </svg>
-          <div>
-            <h3>Variables</h3>
-            <p>View and edit real-time variable values</p>
-          </div>
-        </a>
-
-        <a href="/projects/{projectId}/devices" class="card card-interactive quick-link">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="6" width="20" height="12" rx="2"/>
-            <circle cx="8" cy="12" r="2"/>
-            <path d="M14 10h4M14 14h4"/>
-          </svg>
-          <div>
-            <h3>Devices</h3>
-            <p>Configure EtherNet/IP PLCs and tags</p>
-          </div>
-        </a>
-      </div>
+      <section class="topology-section">
+        <h2>System Topology</h2>
+        <p class="topology-hint">Click on a service or device to configure it</p>
+        <NetworkTopology {projectId} {services} {devices} />
+      </section>
     {/if}
   </div>
 </div>
@@ -111,61 +112,59 @@
     margin-bottom: 2rem;
   }
 
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1rem;
-    margin-bottom: 2rem;
-  }
-
-  .stat-card {
+  .status-loading {
     background: var(--theme-surface);
-    border: 1px solid var(--theme-border);
-    border-radius: var(--rounded-xl);
-    padding: 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .stat-value {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: var(--theme-primary);
-  }
-
-  .stat-label {
-    font-size: 0.8125rem;
     color: var(--theme-text-muted);
   }
 
-  .quick-links {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 1rem;
+  .status-disconnected {
+    background: var(--color-red-500, #ef4444);
+    color: white;
   }
 
-  .quick-link {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    text-decoration: none;
-    color: var(--theme-text);
-
-    svg {
-      flex-shrink: 0;
-      color: var(--theme-primary);
-      margin-top: 0.125rem;
+  .topology-section {
+    h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+      color: var(--theme-text);
     }
 
-    h3 {
-      font-size: 1rem;
-      margin-bottom: 0.25rem;
+    .topology-hint {
+      font-size: 0.8125rem;
+      color: var(--theme-text-muted);
+      margin-bottom: 1rem;
+    }
+  }
+
+  .topology-loading {
+    width: 100%;
+    min-height: 300px;
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-border);
+    border-radius: var(--rounded-xl);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--theme-border);
+      border-top-color: var(--theme-primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
     }
 
     p {
       font-size: 0.875rem;
       color: var(--theme-text-muted);
     }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 </style>

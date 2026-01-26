@@ -2,6 +2,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { graphql } from '$lib/graphql/client';
+  import VariableTree from '$lib/components/VariableTree.svelte';
 
   interface Device {
     id: string;
@@ -14,27 +15,49 @@
     enabled: boolean;
   }
 
-  interface Tag {
-    id: string;
-    deviceId: string;
-    address: string;
-    datatype: string | null;
-    writable: boolean;
-    deadbandValue: number | null;
-    deadbandMaxTime: number | null;
-    disableRBE: boolean | null;
+  interface Variable {
+    projectId: string;
+    deviceId: string | null;
+    variableId: string;
+    value: unknown;
+    datatype: string;
+    quality: string;
+    source: string;
+    lastUpdated: string;
+  }
+
+  interface DeadBandConfig {
+    value: number;
+    maxTime: number | null;
+  }
+
+  interface MqttVariableEntry {
+    variableId: string;
+    enabled: boolean;
+    deadband: DeadBandConfig | null;
+  }
+
+  interface MqttConfig {
+    defaults: {
+      deadband: DeadBandConfig;
+    };
+    variables: MqttVariableEntry[];
+    enabledCount: number;
   }
 
   const projectId = $derived($page.params.projectId);
   const deviceId = $derived($page.params.deviceId);
 
   let device = $state<Device | null>(null);
-  let tags = $state<Tag[]>([]);
+  let variables = $state<Variable[]>([]);
+  let mqttConfig = $state<MqttConfig | null>(null);
   let loading = $state(true);
+  let browsing = $state(false);
   let error = $state<string | null>(null);
 
   // Edit device modal
   let showEditModal = $state(false);
+  let saving = $state(false);
   let editDevice = $state({
     host: '',
     port: 44818,
@@ -44,57 +67,29 @@
     enabled: true,
   });
 
-  // Add tag modal
-  let showAddTagModal = $state(false);
-  let saving = $state(false);
-  let newTag = $state({
-    address: '',
-    datatype: '',
-    writable: false,
-    deadbandValue: null as number | null,
-    deadbandMaxTime: null as number | null,
-    disableRBE: false,
-  });
-
   async function loadDevice() {
     loading = true;
     error = null;
     try {
-      const [deviceResult, tagsResult] = await Promise.all([
-        graphql<{ device: Device | null }>(`
-          query($projectId: String!, $deviceId: String!) {
-            device(projectId: $projectId, deviceId: $deviceId) {
-              id
-              projectId
-              host
-              port
-              type
-              slot
-              scanRate
-              enabled
-            }
+      const result = await graphql<{ device: Device | null }>(`
+        query($projectId: String!, $deviceId: String!) {
+          device(projectId: $projectId, deviceId: $deviceId) {
+            id
+            projectId
+            host
+            port
+            type
+            slot
+            scanRate
+            enabled
           }
-        `, { projectId: $page.params.projectId, deviceId: $page.params.deviceId }),
-        graphql<{ tags: Tag[] }>(`
-          query($projectId: String!, $deviceId: String!) {
-            tags(projectId: $projectId, deviceId: $deviceId) {
-              id
-              deviceId
-              address
-              datatype
-              writable
-              deadbandValue
-              deadbandMaxTime
-              disableRBE
-            }
-          }
-        `, { projectId: $page.params.projectId, deviceId: $page.params.deviceId }),
-      ]);
+        }
+      `, { projectId: $page.params.projectId, deviceId: $page.params.deviceId });
 
-      if (deviceResult.errors) {
-        error = deviceResult.errors[0].message;
-      } else if (deviceResult.data?.device) {
-        device = deviceResult.data.device;
+      if (result.errors) {
+        error = result.errors[0].message;
+      } else if (result.data?.device) {
+        device = result.data.device;
         editDevice = {
           host: device.host,
           port: device.port,
@@ -105,10 +100,6 @@
         };
       } else {
         error = 'Device not found';
-      }
-
-      if (tagsResult.data) {
-        tags = tagsResult.data.tags;
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load device';
@@ -161,98 +152,115 @@
     saving = false;
   }
 
-  async function addTag() {
-    if (!newTag.address) {
-      error = 'Tag address is required';
-      return;
-    }
-
-    saving = true;
+  async function browseDeviceTags() {
+    browsing = true;
     error = null;
-
-    // Generate tag ID from address
-    const tagId = newTag.address.replace(/\./g, '_');
-
     try {
-      const result = await graphql<{ upsertTag: Tag }>(`
-        mutation($projectId: String!, $deviceId: String!, $tagId: String!, $input: TagInput!) {
-          upsertTag(projectId: $projectId, deviceId: $deviceId, tagId: $tagId, input: $input) {
-            id
+      const result = await graphql<{ browseTags: Variable[] }>(`
+        mutation($projectId: String!, $plcId: String) {
+          browseTags(projectId: $projectId, plcId: $plcId) {
+            projectId
             deviceId
-            address
+            variableId
+            value
             datatype
-            writable
-            deadbandValue
-            deadbandMaxTime
-            disableRBE
+            quality
+            source
+            lastUpdated
           }
         }
       `, {
         projectId: $page.params.projectId,
-        deviceId: $page.params.deviceId,
-        tagId,
-        input: {
-          address: newTag.address,
-          datatype: newTag.datatype || null,
-          writable: newTag.writable,
-          deadbandValue: newTag.deadbandValue,
-          deadbandMaxTime: newTag.deadbandMaxTime,
-          disableRBE: newTag.disableRBE,
-        },
+        plcId: $page.params.deviceId,
       });
 
       if (result.errors) {
         error = result.errors[0].message;
       } else if (result.data) {
-        tags = [...tags, result.data.upsertTag];
-        showAddTagModal = false;
-        resetNewTag();
+        // Filter variables to only show those from this device
+        // (deviceId may be null if services haven't been restarted yet)
+        variables = result.data.browseTags.filter(v =>
+          v.deviceId === $page.params.deviceId || v.deviceId === null
+        );
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to add tag';
+      error = e instanceof Error ? e.message : 'Failed to browse tags';
     }
-    saving = false;
+    browsing = false;
   }
 
-  async function deleteTag(tagId: string) {
-    if (!confirm(`Delete tag "${tagId}"?`)) {
-      return;
-    }
-
+  // Load variables on mount (if service is running, we might already have them)
+  async function loadVariables() {
     try {
-      const result = await graphql<{ deleteTag: boolean }>(`
-        mutation($projectId: String!, $deviceId: String!, $tagId: String!) {
-          deleteTag(projectId: $projectId, deviceId: $deviceId, tagId: $tagId)
+      const result = await graphql<{ variables: Variable[] }>(`
+        query($projectId: String!) {
+          variables(projectId: $projectId) {
+            projectId
+            deviceId
+            variableId
+            value
+            datatype
+            quality
+            source
+            lastUpdated
+          }
         }
-      `, {
-        projectId: $page.params.projectId,
-        deviceId: $page.params.deviceId,
-        tagId,
-      });
+      `, { projectId: $page.params.projectId });
 
-      if (result.errors) {
-        error = result.errors[0].message;
-      } else {
-        tags = tags.filter(t => t.id !== tagId);
+      if (result.data) {
+        // Filter variables to only show those from this device
+        // (deviceId may be null if services haven't been restarted yet)
+        variables = result.data.variables.filter(v =>
+          v.deviceId === $page.params.deviceId || v.deviceId === null
+        );
       }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to delete tag';
+    } catch {
+      // Variables may not be available yet - that's OK
     }
   }
 
-  function resetNewTag() {
-    newTag = {
-      address: '',
-      datatype: '',
-      writable: false,
-      deadbandValue: null,
-      deadbandMaxTime: null,
-      disableRBE: false,
-    };
+  // Load MQTT configuration for the project
+  async function loadMqttConfig() {
+    try {
+      const result = await graphql<{ mqttConfig: MqttConfig }>(`
+        query($projectId: String!) {
+          mqttConfig(projectId: $projectId) {
+            defaults {
+              deadband {
+                value
+                maxTime
+              }
+            }
+            variables {
+              variableId
+              enabled
+              deadband {
+                value
+                maxTime
+              }
+            }
+            enabledCount
+          }
+        }
+      `, { projectId: $page.params.projectId });
+
+      if (result.data) {
+        mqttConfig = result.data.mqttConfig;
+      }
+    } catch {
+      // MQTT config may not be available - that's OK
+    }
+  }
+
+  // Handle MQTT config changes from VariableTree
+  function handleMqttChange() {
+    loadMqttConfig();
   }
 
   onMount(() => {
     loadDevice();
+    loadVariables();
+    loadMqttConfig();
   });
 </script>
 
@@ -337,63 +345,40 @@
       <!-- Tags Section -->
       <section class="tags-section">
         <header class="section-header">
-          <h3>Tags ({tags.length})</h3>
-          <button class="primary" onclick={() => showAddTagModal = true}>
+          <h3>Tags {variables.length > 0 ? `(${variables.length})` : ''}</h3>
+          <button class="secondary" onclick={browseDeviceTags} disabled={browsing}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 5v14M5 12h14"/>
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
             </svg>
-            Add Tag
+            {browsing ? 'Browsing...' : 'Browse Tags'}
           </button>
         </header>
 
-        {#if tags.length === 0}
+        {#if browsing}
+          <div class="browse-loading">
+            <div class="spinner"></div>
+            <p>Browsing PLC for available tags...</p>
+            <p class="hint">This may take a moment for PLCs with many tags.</p>
+          </div>
+        {:else if variables.length === 0}
           <div class="empty-state">
-            <p>No tags configured. Add tags to start polling data from this device.</p>
-            <button class="primary" onclick={() => showAddTagModal = true}>Add Tag</button>
+            <div class="empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+            </div>
+            <h4>No Tags Discovered</h4>
+            <p>Click "Browse Tags" to discover available tags from this PLC.</p>
           </div>
         {:else}
-          <div class="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Address</th>
-                  <th>Datatype</th>
-                  <th>Writable</th>
-                  <th>Deadband</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each tags as tag (tag.id)}
-                  <tr>
-                    <td class="tag-address">{tag.address}</td>
-                    <td>{tag.datatype || '-'}</td>
-                    <td>
-                      {#if tag.writable}
-                        <span class="badge">Yes</span>
-                      {:else}
-                        <span class="badge muted">No</span>
-                      {/if}
-                    </td>
-                    <td>
-                      {#if tag.deadbandValue !== null}
-                        {tag.deadbandValue}{tag.deadbandMaxTime ? ` / ${tag.deadbandMaxTime}ms` : ''}
-                      {:else}
-                        -
-                      {/if}
-                    </td>
-                    <td class="actions">
-                      <button class="icon-btn danger" onclick={() => deleteTag(tag.id)} title="Delete tag">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
+          <VariableTree
+            {variables}
+            projectId={$page.params.projectId}
+            {mqttConfig}
+            onMqttChange={handleMqttChange}
+          />
         {/if}
       </section>
     {/if}
@@ -456,98 +441,6 @@
           <button type="button" onclick={() => showEditModal = false}>Cancel</button>
           <button type="submit" class="primary" disabled={saving}>
             {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-{/if}
-
-<!-- Add Tag Modal -->
-{#if showAddTagModal}
-  <div class="modal-backdrop" onclick={() => showAddTagModal = false}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <header class="modal-header">
-        <h3>Add Tag</h3>
-        <button class="icon-btn" onclick={() => showAddTagModal = false}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12"/>
-          </svg>
-        </button>
-      </header>
-
-      <form onsubmit={(e) => { e.preventDefault(); addTag(); }}>
-        <div class="form-group">
-          <label for="tag-address">Tag Address</label>
-          <input
-            id="tag-address"
-            type="text"
-            bind:value={newTag.address}
-            placeholder="e.g., Motor_Speed, Array[0], UDT.Member"
-            required
-          />
-          <span class="form-hint">The tag name in the PLC</span>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="tag-datatype">Datatype (optional)</label>
-            <select id="tag-datatype" bind:value={newTag.datatype}>
-              <option value="">Auto-detect</option>
-              <option value="BOOL">BOOL</option>
-              <option value="SINT">SINT</option>
-              <option value="INT">INT</option>
-              <option value="DINT">DINT</option>
-              <option value="LINT">LINT</option>
-              <option value="REAL">REAL</option>
-              <option value="LREAL">LREAL</option>
-              <option value="STRING">STRING</option>
-            </select>
-          </div>
-
-          <div class="form-group checkbox-inline">
-            <label>
-              <input type="checkbox" bind:checked={newTag.writable} />
-              <span>Writable</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="tag-deadband">Deadband Value</label>
-            <input
-              id="tag-deadband"
-              type="number"
-              step="any"
-              bind:value={newTag.deadbandValue}
-              placeholder="Optional"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="tag-maxtime">Max Time (ms)</label>
-            <input
-              id="tag-maxtime"
-              type="number"
-              bind:value={newTag.deadbandMaxTime}
-              placeholder="Optional"
-            />
-          </div>
-        </div>
-
-        <div class="form-group checkbox">
-          <label>
-            <input type="checkbox" bind:checked={newTag.disableRBE} />
-            <span>Disable RBE (Report by Exception)</span>
-          </label>
-          <span class="form-hint">Always publish values, even when unchanged</span>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" onclick={() => showAddTagModal = false}>Cancel</button>
-          <button type="submit" class="primary" disabled={saving}>
-            {saving ? 'Adding...' : 'Add Tag'}
           </button>
         </div>
       </form>
@@ -642,38 +535,37 @@
     }
   }
 
-  .table-container {
+  .browse-loading {
+    text-align: center;
+    padding: 3rem 2rem;
     background: var(--theme-surface);
     border: 1px solid var(--theme-border);
     border-radius: var(--rounded-xl);
-    overflow: hidden;
-  }
 
-  table {
-    margin: 0;
-  }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--theme-border);
+      border-top-color: var(--theme-primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
 
-  .tag-address {
-    font-family: monospace;
-    font-size: 0.875rem;
-  }
+    p {
+      color: var(--theme-text);
+      margin: 0;
+    }
 
-  .badge {
-    display: inline-block;
-    padding: 0.125rem 0.5rem;
-    background: rgba(6, 182, 212, 0.1);
-    color: var(--theme-primary);
-    border-radius: var(--rounded-full);
-    font-size: 0.75rem;
-
-    &.muted {
-      background: var(--theme-surface-hover);
+    .hint {
+      font-size: 0.875rem;
       color: var(--theme-text-muted);
+      margin-top: 0.5rem;
     }
   }
 
-  .actions {
-    text-align: right;
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .empty-state {
@@ -683,9 +575,22 @@
     border: 1px solid var(--theme-border);
     border-radius: var(--rounded-xl);
 
+    .empty-icon {
+      color: var(--theme-text-muted);
+      opacity: 0.5;
+      margin-bottom: 1rem;
+    }
+
+    h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--theme-text);
+      margin: 0 0 0.5rem;
+    }
+
     p {
       color: var(--theme-text-muted);
-      margin-bottom: 1rem;
+      margin: 0;
     }
   }
 

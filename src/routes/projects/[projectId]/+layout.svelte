@@ -4,29 +4,68 @@
   let { children } = $props();
 
   const projectId = $derived($page.params.projectId);
+  const deviceId = $derived($page.params.deviceId);
+
+  // Build breadcrumb segments based on current path
+  const breadcrumbs = $derived(() => {
+    const segments: Array<{ label: string; href: string }> = [
+      { label: 'Projects', href: '/projects' },
+      { label: projectId, href: `/projects/${projectId}` },
+    ];
+
+    const path = $page.url.pathname;
+
+    if (path.includes('/devices')) {
+      segments.push({ label: 'EtherNet/IP', href: `/projects/${projectId}/devices` });
+      if (deviceId) {
+        segments.push({ label: deviceId, href: `/projects/${projectId}/devices/${deviceId}` });
+      }
+    } else if (path.includes('/mqtt')) {
+      segments.push({ label: 'MQTT', href: `/projects/${projectId}/mqtt` });
+    }
+
+    return segments;
+  });
+
+  // Check which tab is active
+  const currentTab = $derived(() => {
+    const path = $page.url.pathname;
+    if (path.includes('/devices')) return 'ethernetip';
+    if (path.includes('/mqtt')) return 'mqtt';
+    return 'overview';
+  });
 </script>
 
 <div class="project-layout">
   <nav class="project-nav">
-    <a href="/projects" class="back-link">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M19 12H5M12 19l-7-7 7-7"/>
-      </svg>
-      Projects
-    </a>
-    <span class="separator">/</span>
-    <span class="project-name">{projectId}</span>
+    {#each breadcrumbs() as segment, i}
+      {#if i > 0}
+        <span class="separator">/</span>
+      {/if}
+      {#if i === breadcrumbs().length - 1}
+        <span class="current">{segment.label}</span>
+      {:else}
+        <a href={segment.href} class="breadcrumb-link">
+          {#if i === 0}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+          {/if}
+          {segment.label}
+        </a>
+      {/if}
+    {/each}
   </nav>
 
   <div class="project-tabs">
-    <a href="/projects/{projectId}" class="tab" class:active={$page.url.pathname === `/projects/${projectId}`}>
+    <a href="/projects/{projectId}" class="tab" class:active={currentTab() === 'overview'}>
       Overview
     </a>
-    <a href="/projects/{projectId}/variables" class="tab" class:active={$page.url.pathname.includes('/variables')}>
-      Variables
+    <a href="/projects/{projectId}/devices" class="tab" class:active={currentTab() === 'ethernetip'}>
+      EtherNet/IP
     </a>
-    <a href="/projects/{projectId}/devices" class="tab" class:active={$page.url.pathname.includes('/devices')}>
-      Devices
+    <a href="/projects/{projectId}/mqtt" class="tab" class:active={currentTab() === 'mqtt'}>
+      MQTT
     </a>
   </div>
 
@@ -49,7 +88,7 @@
     font-size: 0.875rem;
   }
 
-  .back-link {
+  .breadcrumb-link {
     display: flex;
     align-items: center;
     gap: 0.375rem;
@@ -65,7 +104,7 @@
     color: var(--theme-border);
   }
 
-  .project-name {
+  .current {
     color: var(--theme-text);
     font-weight: 500;
   }
