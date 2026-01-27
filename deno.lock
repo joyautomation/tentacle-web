@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@joyautomation/tentacle-nats-schema@*": "0.0.1",
     "npm:@fontsource/righteous@5": "5.2.6",
     "npm:@fontsource/space-grotesk@5": "5.2.8",
     "npm:@sveltejs/adapter-static@^3.0.6": "3.0.10_@sveltejs+kit@2.49.4__@sveltejs+vite-plugin-svelte@5.1.1___svelte@5.46.1____acorn@8.15.0___vite@6.4.1____sass@1.97.2____picomatch@4.0.3___sass@1.97.2__svelte@5.46.1___acorn@8.15.0__typescript@5.6.3__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__acorn@8.15.0__sass@1.97.2_@sveltejs+vite-plugin-svelte@5.1.1__svelte@5.46.1___acorn@8.15.0__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__sass@1.97.2_svelte@5.46.1__acorn@8.15.0_typescript@5.6.3_vite@6.4.1__sass@1.97.2__picomatch@4.0.3_sass@1.97.2",
@@ -15,6 +16,11 @@
     "npm:typescript@~5.6.2": "5.6.3",
     "npm:vite@*": "6.4.1_sass@1.97.2_picomatch@4.0.3",
     "npm:vite@^6.0.3": "6.4.1_sass@1.97.2_picomatch@4.0.3"
+  },
+  "jsr": {
+    "@joyautomation/tentacle-nats-schema@0.0.1": {
+      "integrity": "05ab61f736ed2c22e979aafba75079e3af23c4f160c484d46f2ccbdaec65c9d5"
+    }
   },
   "npm": {
     "@esbuild/aix-ppc64@0.25.12": {
