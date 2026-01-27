@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import { graphql } from '$lib/graphql/client';
+  import { graphql, subscribe } from '$lib/graphql/client';
   import VariableTree from '$lib/components/VariableTree.svelte';
 
   interface Device {
@@ -45,6 +45,23 @@
     enabledCount: number;
   }
 
+  interface BrowseResult {
+    browseId: string;
+    variables: Variable[] | null;
+  }
+
+  interface BrowseProgress {
+    browseId: string;
+    projectId: string;
+    deviceId: string;
+    phase: string;
+    totalTags: number;
+    completedTags: number;
+    errorCount: number;
+    message: string | null;
+    percentComplete: number;
+  }
+
   const projectId = $derived($page.params.projectId);
   const deviceId = $derived($page.params.deviceId);
 
@@ -54,6 +71,10 @@
   let loading = $state(true);
   let browsing = $state(false);
   let error = $state<string | null>(null);
+
+  // Browse progress state
+  let browseProgress = $state<BrowseProgress | null>(null);
+  let unsubscribeBrowse: (() => void) | null = null;
 
   // Edit device modal
   let showEditModal = $state(false);
@@ -155,38 +176,102 @@
   async function browseDeviceTags() {
     browsing = true;
     error = null;
+    browseProgress = null;
+
+    // Clean up any existing subscription
+    if (unsubscribeBrowse) {
+      unsubscribeBrowse();
+      unsubscribeBrowse = null;
+    }
+
     try {
-      const result = await graphql<{ browseTags: Variable[] }>(`
-        mutation($projectId: String!, $plcId: String) {
-          browseTags(projectId: $projectId, plcId: $plcId) {
-            projectId
-            deviceId
-            variableId
-            value
-            datatype
-            quality
-            source
-            lastUpdated
+      // Start async browse to get browseId
+      const result = await graphql<{ browseTags: BrowseResult }>(`
+        mutation($projectId: String!, $plcId: String, $async: Boolean) {
+          browseTags(projectId: $projectId, plcId: $plcId, async: $async) {
+            browseId
+            variables {
+              projectId
+              deviceId
+              variableId
+              value
+              datatype
+              quality
+              source
+              lastUpdated
+            }
           }
         }
       `, {
         projectId: $page.params.projectId,
         plcId: $page.params.deviceId,
+        async: true,
       });
 
       if (result.errors) {
         error = result.errors[0].message;
-      } else if (result.data) {
-        // Filter variables to only show those from this device
-        // (deviceId may be null if services haven't been restarted yet)
-        variables = result.data.browseTags.filter(v =>
-          v.deviceId === $page.params.deviceId || v.deviceId === null
-        );
+        browsing = false;
+        return;
       }
+
+      if (!result.data?.browseTags.browseId) {
+        error = 'Failed to start browse operation';
+        browsing = false;
+        return;
+      }
+
+      const browseId = result.data.browseTags.browseId;
+
+      // Subscribe to progress updates
+      unsubscribeBrowse = subscribe<{ browseProgress: BrowseProgress }>(
+        `subscription($browseId: String!) {
+          browseProgress(browseId: $browseId) {
+            browseId
+            projectId
+            deviceId
+            phase
+            totalTags
+            completedTags
+            errorCount
+            message
+            percentComplete
+          }
+        }`,
+        { browseId },
+        (data) => {
+          browseProgress = data.browseProgress;
+
+          // When completed, load the final variables
+          if (data.browseProgress.phase === 'completed') {
+            loadVariables().then(() => {
+              browsing = false;
+              browseProgress = null;
+            });
+            if (unsubscribeBrowse) {
+              unsubscribeBrowse();
+              unsubscribeBrowse = null;
+            }
+          } else if (data.browseProgress.phase === 'failed') {
+            error = data.browseProgress.message || 'Browse failed';
+            browsing = false;
+            browseProgress = null;
+            if (unsubscribeBrowse) {
+              unsubscribeBrowse();
+              unsubscribeBrowse = null;
+            }
+          }
+        },
+        (err) => {
+          error = err.message;
+          browsing = false;
+          browseProgress = null;
+        }
+      );
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to browse tags';
+      browsing = false;
+      browseProgress = null;
     }
-    browsing = false;
   }
 
   // Load variables on mount (if service is running, we might already have them)
@@ -357,9 +442,26 @@
 
         {#if browsing}
           <div class="browse-loading">
-            <div class="spinner"></div>
-            <p>Browsing PLC for available tags...</p>
-            <p class="hint">This may take a moment for PLCs with many tags.</p>
+            {#if browseProgress}
+              <div class="progress-container">
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: {browseProgress.percentComplete}%"></div>
+                </div>
+                <div class="progress-text">
+                  <span class="phase">{browseProgress.phase}</span>
+                  <span class="counts">{browseProgress.completedTags}/{browseProgress.totalTags} tags ({browseProgress.percentComplete}%)</span>
+                </div>
+                {#if browseProgress.message}
+                  <p class="progress-message">{browseProgress.message}</p>
+                {/if}
+                {#if browseProgress.errorCount > 0}
+                  <p class="progress-errors">{browseProgress.errorCount} errors</p>
+                {/if}
+              </div>
+            {:else}
+              <div class="spinner"></div>
+              <p>Starting browse operation...</p>
+            {/if}
           </div>
         {:else if variables.length === 0}
           <div class="empty-state">
@@ -560,6 +662,56 @@
     .hint {
       font-size: 0.875rem;
       color: var(--theme-text-muted);
+      margin-top: 0.5rem;
+    }
+
+    .progress-container {
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    .progress-bar {
+      height: 8px;
+      background: var(--theme-border);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--theme-primary);
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .phase {
+      text-transform: capitalize;
+      color: var(--theme-text);
+      font-weight: 500;
+    }
+
+    .counts {
+      color: var(--theme-text-muted);
+      font-family: monospace;
+    }
+
+    .progress-message {
+      font-size: 0.875rem;
+      color: var(--theme-text-muted);
+    }
+
+    .progress-errors {
+      font-size: 0.875rem;
+      color: var(--red-500);
       margin-top: 0.5rem;
     }
   }
