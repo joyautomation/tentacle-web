@@ -1,23 +1,19 @@
-// Simple fetch-based GraphQL client
+// Client-side GraphQL utilities - routes through server-side API
 
 export type GraphQLResponse<T> = {
   data?: T;
   errors?: Array<{ message: string; path?: string[] }>;
 };
 
-// Default GraphQL endpoint - can be overridden via environment
-const GRAPHQL_URL = typeof window !== 'undefined'
-  ? (import.meta.env.PUBLIC_GRAPHQL_URL || 'http://localhost:4000/graphql')
-  : 'http://localhost:4000/graphql';
-
 /**
- * Execute a GraphQL query or mutation
+ * Execute a GraphQL query or mutation via server-side proxy
+ * This prevents exposing the GraphQL endpoint to the browser
  */
 export async function graphql<T = unknown>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<GraphQLResponse<T>> {
-  const response = await fetch(GRAPHQL_URL, {
+  const response = await fetch('/api/graphql', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -37,7 +33,7 @@ export async function graphql<T = unknown>(
 
 /**
  * Subscribe to GraphQL updates via Server-Sent Events
- * GraphQL Yoga uses SSE for subscriptions
+ * Routes through server-side proxy for SSE subscriptions
  */
 export function subscribe<T = unknown>(
   subscriptionQuery: string,
@@ -53,7 +49,7 @@ export function subscribe<T = unknown>(
     params.set('variables', JSON.stringify(variables));
   }
 
-  const eventSource = new EventSource(`${GRAPHQL_URL}?${params}`);
+  const eventSource = new EventSource(`/api/graphql/subscribe?${params}`);
 
   // GraphQL Yoga uses 'next' event for subscription data
   const handleEvent = (event: MessageEvent) => {

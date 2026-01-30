@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-  import { onMount } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import { graphql } from '$lib/graphql/client';
+  import type { PageData } from './$types';
 
   interface Device {
     id: string;
@@ -14,11 +14,19 @@
     enabled: boolean;
   }
 
-  const projectId = $derived($page.params.projectId);
+  let { data }: { data: PageData } = $props();
 
-  let devices = $state<Device[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
+  const projectId = $derived(data.projectId);
+
+  // Data state - initialize from server data
+  let devices = $state<Device[]>(data.devices);
+  let error = $state<string | null>(data.error);
+
+  // Sync with server data when it changes
+  $effect(() => {
+    devices = data.devices;
+    error = data.error;
+  });
 
   // Add device modal state
   let showAddModal = $state(false);
@@ -33,34 +41,8 @@
     enabled: true,
   });
 
-  async function loadDevices() {
-    loading = true;
-    error = null;
-    try {
-      const result = await graphql<{ devices: Device[] }>(`
-        query($projectId: String!) {
-          devices(projectId: $projectId) {
-            id
-            projectId
-            host
-            port
-            type
-            slot
-            scanRate
-            enabled
-          }
-        }
-      `, { projectId: $page.params.projectId });
-
-      if (result.errors) {
-        error = result.errors[0].message;
-      } else if (result.data) {
-        devices = result.data.devices;
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load devices';
-    }
-    loading = false;
+  async function refreshData() {
+    await invalidateAll();
   }
 
   async function addDevice() {
@@ -87,7 +69,7 @@
           }
         }
       `, {
-        projectId: $page.params.projectId,
+        projectId,
         deviceId: newDevice.id,
         input: {
           host: newDevice.host,
@@ -102,7 +84,7 @@
       if (result.errors) {
         error = result.errors[0].message;
       } else if (result.data) {
-        devices = [...devices, result.data.upsertDevice];
+        await refreshData();
         showAddModal = false;
         resetNewDevice();
       }
@@ -123,14 +105,14 @@
           deleteDevice(projectId: $projectId, deviceId: $deviceId)
         }
       `, {
-        projectId: $page.params.projectId,
+        projectId,
         deviceId,
       });
 
       if (result.errors) {
         error = result.errors[0].message;
       } else {
-        devices = devices.filter(d => d.id !== deviceId);
+        await refreshData();
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to delete device';
@@ -148,10 +130,6 @@
       enabled: true,
     };
   }
-
-  onMount(() => {
-    loadDevices();
-  });
 </script>
 
 <div class="page">
@@ -176,9 +154,7 @@
       </div>
     {/if}
 
-    {#if loading}
-      <div class="loading">Loading devices...</div>
-    {:else if devices.length === 0}
+    {#if devices.length === 0}
       <div class="empty-state">
         <div class="empty-icon">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">

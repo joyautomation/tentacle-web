@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-  import { onMount } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import { graphql, subscribe } from '$lib/graphql/client';
   import VariableTree from '$lib/components/VariableTree.svelte';
+  import type { PageData } from './$types';
 
   interface Device {
     id: string;
@@ -62,15 +62,36 @@
     percentComplete: number;
   }
 
-  const projectId = $derived($page.params.projectId);
-  const deviceId = $derived($page.params.deviceId);
+  let { data }: { data: PageData } = $props();
 
-  let device = $state<Device | null>(null);
-  let variables = $state<Variable[]>([]);
-  let mqttConfig = $state<MqttConfig | null>(null);
-  let loading = $state(true);
+  const projectId = $derived(data.projectId);
+  const deviceId = $derived(data.deviceId);
+
+  // Data state - initialize from server data
+  let device = $state<Device | null>(data.device);
+  let variables = $state<Variable[]>(data.variables);
+  let mqttConfig = $state<MqttConfig | null>(data.mqttConfig);
+  let error = $state<string | null>(data.error);
   let browsing = $state(false);
-  let error = $state<string | null>(null);
+
+  // Sync with server data when it changes
+  $effect(() => {
+    device = data.device;
+    variables = data.variables;
+    mqttConfig = data.mqttConfig;
+    error = data.error;
+    // Update editDevice when device changes
+    if (data.device) {
+      editDevice = {
+        host: data.device.host,
+        port: data.device.port,
+        type: data.device.type,
+        slot: data.device.slot ?? 0,
+        scanRate: data.device.scanRate,
+        enabled: data.device.enabled,
+      };
+    }
+  });
 
   // Browse progress state
   let browseProgress = $state<BrowseProgress | null>(null);
@@ -80,52 +101,16 @@
   let showEditModal = $state(false);
   let saving = $state(false);
   let editDevice = $state({
-    host: '',
-    port: 44818,
-    type: 'rockwell',
-    slot: 0,
-    scanRate: 1000,
-    enabled: true,
+    host: data.device?.host ?? '',
+    port: data.device?.port ?? 44818,
+    type: data.device?.type ?? 'rockwell',
+    slot: data.device?.slot ?? 0,
+    scanRate: data.device?.scanRate ?? 1000,
+    enabled: data.device?.enabled ?? true,
   });
 
-  async function loadDevice() {
-    loading = true;
-    error = null;
-    try {
-      const result = await graphql<{ device: Device | null }>(`
-        query($projectId: String!, $deviceId: String!) {
-          device(projectId: $projectId, deviceId: $deviceId) {
-            id
-            projectId
-            host
-            port
-            type
-            slot
-            scanRate
-            enabled
-          }
-        }
-      `, { projectId: $page.params.projectId, deviceId: $page.params.deviceId });
-
-      if (result.errors) {
-        error = result.errors[0].message;
-      } else if (result.data?.device) {
-        device = result.data.device;
-        editDevice = {
-          host: device.host,
-          port: device.port,
-          type: device.type,
-          slot: device.slot ?? 0,
-          scanRate: device.scanRate,
-          enabled: device.enabled,
-        };
-      } else {
-        error = 'Device not found';
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load device';
-    }
-    loading = false;
+  async function refreshData() {
+    await invalidateAll();
   }
 
   async function updateDevice() {
@@ -149,8 +134,8 @@
           }
         }
       `, {
-        projectId: $page.params.projectId,
-        deviceId: $page.params.deviceId,
+        projectId,
+        deviceId,
         input: {
           host: editDevice.host,
           port: editDevice.port,
@@ -164,7 +149,7 @@
       if (result.errors) {
         error = result.errors[0].message;
       } else if (result.data) {
-        device = result.data.upsertDevice;
+        await refreshData();
         showEditModal = false;
       }
     } catch (e) {
@@ -203,8 +188,8 @@
           }
         }
       `, {
-        projectId: $page.params.projectId,
-        plcId: $page.params.deviceId,
+        projectId,
+        plcId: deviceId,
         async: true,
       });
 
@@ -241,9 +226,9 @@
         (data) => {
           browseProgress = data.browseProgress;
 
-          // When completed, load the final variables
+          // When completed, refresh the data from server
           if (data.browseProgress.phase === 'completed') {
-            loadVariables().then(() => {
+            refreshData().then(() => {
               browsing = false;
               browseProgress = null;
             });
@@ -274,79 +259,10 @@
     }
   }
 
-  // Load variables on mount (if service is running, we might already have them)
-  async function loadVariables() {
-    try {
-      const result = await graphql<{ variables: Variable[] }>(`
-        query($projectId: String!) {
-          variables(projectId: $projectId) {
-            projectId
-            deviceId
-            variableId
-            value
-            datatype
-            quality
-            source
-            lastUpdated
-          }
-        }
-      `, { projectId: $page.params.projectId });
-
-      if (result.data) {
-        // Filter variables to only show those from this device
-        // (deviceId may be null if services haven't been restarted yet)
-        variables = result.data.variables.filter(v =>
-          v.deviceId === $page.params.deviceId || v.deviceId === null
-        );
-      }
-    } catch {
-      // Variables may not be available yet - that's OK
-    }
-  }
-
-  // Load MQTT configuration for the project
-  async function loadMqttConfig() {
-    try {
-      const result = await graphql<{ mqttConfig: MqttConfig }>(`
-        query($projectId: String!) {
-          mqttConfig(projectId: $projectId) {
-            defaults {
-              deadband {
-                value
-                maxTime
-              }
-            }
-            variables {
-              variableId
-              enabled
-              deadband {
-                value
-                maxTime
-              }
-            }
-            enabledCount
-          }
-        }
-      `, { projectId: $page.params.projectId });
-
-      if (result.data) {
-        mqttConfig = result.data.mqttConfig;
-      }
-    } catch {
-      // MQTT config may not be available - that's OK
-    }
-  }
-
   // Handle MQTT config changes from VariableTree
   function handleMqttChange() {
-    loadMqttConfig();
+    refreshData();
   }
-
-  onMount(() => {
-    loadDevice();
-    loadVariables();
-    loadMqttConfig();
-  });
 </script>
 
 <div class="page">
@@ -383,9 +299,7 @@
       </div>
     {/if}
 
-    {#if loading}
-      <div class="loading">Loading device...</div>
-    {:else if !device}
+    {#if !device}
       <div class="info-box error">
         <h3>Device Not Found</h3>
         <p>The device "{deviceId}" does not exist.</p>
@@ -477,7 +391,7 @@
         {:else}
           <VariableTree
             {variables}
-            projectId={$page.params.projectId}
+            {projectId}
             {mqttConfig}
             onMqttChange={handleMqttChange}
           />

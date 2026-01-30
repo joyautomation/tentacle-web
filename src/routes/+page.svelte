@@ -1,53 +1,16 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { graphql } from '$lib/graphql/client';
+  import { enhance } from '$app/forms';
+  import type { PageData, ActionData } from './$types';
 
-  interface Project {
-    id: string;
-    lastActivity: string | null;
-    isConnected: boolean;
-    variableCount: number;
-    isStale: boolean;
-  }
-
-  let projects = $state<Project[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
+  let { data, form }: { data: PageData; form: ActionData } = $props();
 
   // Delete modal state
   let deleteModalOpen = $state(false);
-  let projectToDelete = $state<Project | null>(null);
+  let projectToDelete = $state<{ id: string } | null>(null);
   let deleteConfirmText = $state('');
   let deleting = $state(false);
 
-  async function loadProjects() {
-    try {
-      const result = await graphql<{ projects: Project[] }>(`
-        query {
-          projects {
-            id
-            lastActivity
-            isConnected
-            variableCount
-            isStale
-          }
-        }
-      `);
-
-      if (result.errors) {
-        error = result.errors[0].message;
-      } else if (result.data) {
-        projects = result.data.projects;
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load projects';
-    }
-    loading = false;
-  }
-
-  onMount(loadProjects);
-
-  function openDeleteModal(project: Project, event: MouseEvent) {
+  function openDeleteModal(project: { id: string }, event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
     projectToDelete = project;
@@ -59,30 +22,6 @@
     deleteModalOpen = false;
     projectToDelete = null;
     deleteConfirmText = '';
-  }
-
-  async function confirmDelete() {
-    if (!projectToDelete || deleteConfirmText !== projectToDelete.id) return;
-
-    deleting = true;
-    try {
-      const result = await graphql<{ deleteProject: boolean }>(`
-        mutation($projectId: String!) {
-          deleteProject(projectId: $projectId)
-        }
-      `, { projectId: projectToDelete.id });
-
-      if (result.errors) {
-        error = result.errors[0].message;
-      } else if (result.data?.deleteProject) {
-        // Refresh project list
-        await loadProjects();
-        closeDeleteModal();
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Delete failed';
-    }
-    deleting = false;
   }
 
   function formatLastActivity(iso: string | null): string {
@@ -109,15 +48,13 @@
   </header>
 
   <div class="content">
-    {#if loading}
-      <div class="loading">Loading projects...</div>
-    {:else if error}
+    {#if data.error}
       <div class="info-box error">
         <h3>Connection Error</h3>
-        <p>{error}</p>
+        <p>{data.error}</p>
         <p class="hint">Make sure tentacle-graphql is running at the configured endpoint.</p>
       </div>
-    {:else if projects.length === 0}
+    {:else if data.projects.length === 0}
       <div class="empty-state">
         <h3>No Projects Found</h3>
         <p>No active PLC projects were discovered. Start a tentacle service to see projects here.</p>
@@ -125,15 +62,15 @@
     {:else}
       <div class="stats-grid">
         <div class="stat-card">
-          <span class="stat-value">{projects.length}</span>
+          <span class="stat-value">{data.projects.length}</span>
           <span class="stat-label">Active Projects</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">{projects.filter(p => p.isConnected && !p.isStale).length}</span>
+          <span class="stat-value">{data.projects.filter(p => p.isConnected && !p.isStale).length}</span>
           <span class="stat-label">Connected</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">{projects.filter(p => p.isStale).length}</span>
+          <span class="stat-value">{data.projects.filter(p => p.isStale).length}</span>
           <span class="stat-label">Stale</span>
         </div>
       </div>
@@ -141,7 +78,7 @@
       <section class="section">
         <h2>Projects</h2>
         <div class="projects-grid">
-          {#each projects as project}
+          {#each data.projects as project}
             <a href="/projects/{project.id}" class="card card-interactive project-card" class:stale={project.isStale}>
               <div class="project-header">
                 <div class="project-icon" class:stale={project.isStale}>
@@ -193,24 +130,42 @@
       <p class="modal-instruction">
         Type <strong>{projectToDelete.id}</strong> to confirm:
       </p>
-      <input
-        type="text"
-        bind:value={deleteConfirmText}
-        placeholder="Enter project name"
-        class="confirm-input"
-      />
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick={closeDeleteModal} disabled={deleting}>
-          Cancel
-        </button>
-        <button
-          class="btn btn-danger"
-          onclick={confirmDelete}
-          disabled={deleteConfirmText !== projectToDelete.id || deleting}
-        >
-          {deleting ? 'Deleting...' : 'Delete Project'}
-        </button>
-      </div>
+      <form
+        method="POST"
+        action="?/deleteProject"
+        use:enhance={() => {
+          deleting = true;
+          return async ({ update }) => {
+            await update();
+            deleting = false;
+            closeDeleteModal();
+          };
+        }}
+      >
+        <input type="hidden" name="projectId" value={projectToDelete.id} />
+        <input
+          type="text"
+          name="confirmText"
+          bind:value={deleteConfirmText}
+          placeholder="Enter project name"
+          class="confirm-input"
+        />
+        {#if form?.error}
+          <p class="form-error">{form.error}</p>
+        {/if}
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick={closeDeleteModal} disabled={deleting}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-danger"
+            disabled={deleteConfirmText !== projectToDelete.id || deleting}
+          >
+            {deleting ? 'Deleting...' : 'Delete Project'}
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 {/if}
@@ -419,6 +374,12 @@
       outline: none;
       border-color: var(--theme-primary);
     }
+  }
+
+  .form-error {
+    color: var(--red-500);
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
   }
 
   .modal-actions {

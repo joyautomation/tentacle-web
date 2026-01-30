@@ -1,77 +1,21 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { graphql } from '$lib/graphql/client';
+  import { invalidateAll } from '$app/navigation';
+  import type { PageData } from './$types';
 
-  interface Service {
-    serviceType: string;
-    instanceId: string;
-    projectId: string;
-    uptime: number;
-    metadata?: Record<string, unknown>;
+  let { data }: { data: PageData } = $props();
+
+  let refreshing = $state(false);
+
+  async function refresh() {
+    refreshing = true;
+    await invalidateAll();
+    refreshing = false;
   }
-
-  interface Project {
-    id: string;
-    isConnected: boolean;
-    variableCount: number;
-    lastActivity: number | null;
-  }
-
-  let services = $state<Service[]>([]);
-  let projects = $state<Project[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-  let lastRefresh = $state<Date | null>(null);
-
-  async function loadData() {
-    loading = true;
-    error = null;
-    try {
-      const result = await graphql<{
-        services: Service[];
-        projects: Project[];
-      }>(`
-        query {
-          services {
-            serviceType
-            instanceId
-            projectId
-            uptime
-            metadata
-          }
-          projects {
-            id
-            isConnected
-            variableCount
-            lastActivity
-          }
-        }
-      `);
-
-      if (result.errors) {
-        error = result.errors[0].message;
-      } else if (result.data) {
-        services = result.data.services;
-        projects = result.data.projects;
-        lastRefresh = new Date();
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load NATS data';
-    }
-    loading = false;
-  }
-
-  onMount(() => {
-    loadData();
-    // Auto-refresh every 10 seconds
-    const interval = setInterval(loadData, 10000);
-    return () => clearInterval(interval);
-  });
 
   // Group services by project
   const servicesByProject = $derived(() => {
-    const grouped: Record<string, Service[]> = {};
-    for (const service of services) {
+    const grouped: Record<string, typeof data.services> = {};
+    for (const service of data.services) {
       if (!grouped[service.projectId]) {
         grouped[service.projectId] = [];
       }
@@ -117,19 +61,16 @@
       <p class="subtitle">Monitor NATS connection, services, and KV buckets</p>
     </div>
     <div class="header-actions">
-      {#if lastRefresh}
-        <span class="last-refresh">Last refresh: {lastRefresh.toLocaleTimeString()}</span>
-      {/if}
-      <button class="btn btn-secondary" onclick={loadData} disabled={loading}>
-        {loading ? 'Refreshing...' : 'Refresh'}
+      <button class="btn btn-secondary" onclick={refresh} disabled={refreshing}>
+        {refreshing ? 'Refreshing...' : 'Refresh'}
       </button>
     </div>
   </header>
 
-  {#if error}
+  {#if data.error}
     <div class="info-box error">
       <h3>Connection Error</h3>
-      <p>{error}</p>
+      <p>{data.error}</p>
       <p class="hint">Make sure NATS and tentacle-graphql are running.</p>
     </div>
   {:else}
@@ -138,17 +79,17 @@
       <section class="section">
         <h2>Connection Status</h2>
         <div class="status-card">
-          <div class="status-indicator" class:connected={services.length > 0 || projects.length > 0}>
+          <div class="status-indicator" class:connected={data.services.length > 0 || data.projects.length > 0}>
             <span class="dot"></span>
-            {services.length > 0 || projects.length > 0 ? 'Connected' : 'No Services'}
+            {data.services.length > 0 || data.projects.length > 0 ? 'Connected' : 'No Services'}
           </div>
           <div class="status-stats">
             <div class="stat">
-              <span class="stat-value">{services.length}</span>
+              <span class="stat-value">{data.services.length}</span>
               <span class="stat-label">Active Services</span>
             </div>
             <div class="stat">
-              <span class="stat-value">{projects.length}</span>
+              <span class="stat-value">{data.projects.length}</span>
               <span class="stat-label">Projects</span>
             </div>
           </div>
@@ -158,9 +99,7 @@
       <!-- Active Services -->
       <section class="section">
         <h2>Active Services</h2>
-        {#if loading && services.length === 0}
-          <div class="loading-placeholder">Loading services...</div>
-        {:else if services.length === 0}
+        {#if data.services.length === 0}
           <div class="empty-state">
             <p>No active services detected.</p>
             <p class="hint">Start a tentacle service to see it here.</p>
@@ -197,9 +136,7 @@
       <!-- KV Buckets (Projects) -->
       <section class="section">
         <h2>KV Buckets</h2>
-        {#if loading && projects.length === 0}
-          <div class="loading-placeholder">Loading buckets...</div>
-        {:else if projects.length === 0}
+        {#if data.projects.length === 0}
           <div class="empty-state">
             <p>No KV buckets found.</p>
             <p class="hint">Create a project configuration to see buckets here.</p>
@@ -212,7 +149,7 @@
               <span>Variables</span>
               <span>Last Activity</span>
             </div>
-            {#each projects as project}
+            {#each data.projects as project}
               <div class="table-row">
                 <span class="bucket-name">
                   <code>field-config-{project.id}</code>

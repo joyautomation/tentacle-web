@@ -1,29 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { graphql } from '$lib/graphql/client';
+  import type { PageData } from './$types';
 
-  let projects = $state<string[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-
-  onMount(async () => {
-    try {
-      const result = await graphql<{ projects: string[] }>(`
-        query {
-          projects
-        }
-      `);
-
-      if (result.errors) {
-        error = result.errors[0].message;
-      } else if (result.data) {
-        projects = result.data.projects;
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load projects';
-    }
-    loading = false;
-  });
+  let { data }: { data: PageData } = $props();
 </script>
 
 <div class="page">
@@ -33,21 +11,19 @@
   </header>
 
   <div class="content">
-    {#if loading}
-      <div class="loading">Loading projects...</div>
-    {:else if error}
+    {#if data.error}
       <div class="info-box error">
         <h3>Connection Error</h3>
-        <p>{error}</p>
+        <p>{data.error}</p>
       </div>
-    {:else if projects.length === 0}
+    {:else if data.projects.length === 0}
       <div class="empty-state">
         <h3>No Projects Found</h3>
         <p>No active PLC projects were discovered. Configure a tentacle service with a project ID to get started.</p>
       </div>
     {:else}
       <div class="projects-list">
-        {#each projects as project}
+        {#each data.projects as project}
           <a href="/projects/{project}" class="card card-interactive project-row">
             <div class="project-info">
               <div class="project-icon">

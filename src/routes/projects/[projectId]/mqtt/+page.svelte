@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-  import { onMount } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import { graphql } from '$lib/graphql/client';
+  import type { PageData } from './$types';
 
   interface DeadBandConfig {
     value: number;
@@ -22,13 +22,20 @@
     enabledCount: number;
   }
 
-  const projectId = $derived($page.params.projectId);
+  let { data }: { data: PageData } = $props();
 
-  // Data state
-  let mqttConfig = $state<MqttConfig | null>(null);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
+  const projectId = $derived(data.projectId);
+
+  // Data state - initialize from server data
+  let mqttConfig = $state<MqttConfig | null>(data.mqttConfig);
+  let error = $state<string | null>(data.error);
   let saving = $state(false);
+
+  // Sync with server data when it changes
+  $effect(() => {
+    mqttConfig = data.mqttConfig;
+    error = data.error;
+  });
 
   // UI state
   let filterText = $state('');
@@ -52,45 +59,8 @@
     return enabled.filter(v => v.variableId.toLowerCase().includes(filter));
   });
 
-  onMount(async () => {
-    await loadData();
-  });
-
-  async function loadData() {
-    loading = true;
-    error = null;
-    try {
-      const result = await graphql<{ mqttConfig: MqttConfig }>(`
-        query($projectId: String!) {
-          mqttConfig(projectId: $projectId) {
-            defaults {
-              deadband {
-                value
-                maxTime
-              }
-            }
-            variables {
-              variableId
-              enabled
-              deadband {
-                value
-                maxTime
-              }
-            }
-            enabledCount
-          }
-        }
-      `, { projectId: $page.params.projectId });
-
-      if (result.errors) {
-        error = result.errors[0].message;
-      } else if (result.data) {
-        mqttConfig = result.data.mqttConfig;
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load MQTT config';
-    }
-    loading = false;
+  async function refreshData() {
+    await invalidateAll();
   }
 
   function openDefaultsModal() {
@@ -127,13 +97,13 @@
           }
         }
       `, {
-        projectId: $page.params.projectId,
+        projectId,
         deadband: {
           value: deadbandValue,
           maxTime: deadbandMaxTime
         }
       });
-      await loadData();
+      await refreshData();
       showDefaultsModal = false;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to apply defaults';
@@ -150,7 +120,7 @@
           enableMqttVariables(projectId: $projectId, variableIds: $variableIds, config: $config)
         }
       `, {
-        projectId: $page.params.projectId,
+        projectId,
         variableIds: [editingVariableId],
         config: {
           enabled: true,
@@ -160,7 +130,7 @@
           }
         }
       });
-      await loadData();
+      await refreshData();
       showEditModal = false;
       editingVariableId = null;
     } catch (e) {
@@ -176,8 +146,8 @@
         mutation($projectId: String!, $variableIds: [String!]!) {
           disableMqttVariables(projectId: $projectId, variableIds: $variableIds)
         }
-      `, { projectId: $page.params.projectId, variableIds: [variableId] });
-      await loadData();
+      `, { projectId, variableIds: [variableId] });
+      await refreshData();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to disable variable';
     }
@@ -193,8 +163,8 @@
         mutation($projectId: String!, $variableIds: [String!]!) {
           disableMqttVariables(projectId: $projectId, variableIds: $variableIds)
         }
-      `, { projectId: $page.params.projectId, variableIds });
-      await loadData();
+      `, { projectId, variableIds });
+      await refreshData();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to disable all';
     }
@@ -301,9 +271,7 @@
   {/if}
 
   <div class="content">
-    {#if loading}
-      <div class="loading">Loading MQTT configuration...</div>
-    {:else if enabledVariables().length === 0}
+    {#if enabledVariables().length === 0}
       <div class="empty-state">
         <div class="empty-icon">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
