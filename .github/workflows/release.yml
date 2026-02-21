@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  compile:
+    strategy:
+      matrix:
+        target:
+          - { deno: x86_64-unknown-linux-gnu, platform: linux-amd64, runner: ubuntu-latest }
+          - { deno: aarch64-unknown-linux-gnu, platform: linux-arm64, runner: ubuntu-latest }
+          - { deno: x86_64-pc-windows-msvc, platform: windows-amd64, runner: ubuntu-latest }
+          - { deno: aarch64-apple-darwin, platform: darwin-arm64, runner: macos-14 }
+    runs-on: ${{ matrix.target.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tentacle-web
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build SvelteKit
+        run: |
+          cd tentacle-web
+          npm ci
+          npm run build
+
+      - name: Compile for ${{ matrix.target.platform }}
+        run: |
+          EXT=""
+          if [[ "${{ matrix.target.platform }}" == windows-* ]]; then EXT=".exe"; fi
+          cd tentacle-web
+          deno compile --no-check --allow-all \
+            --target ${{ matrix.target.deno }} \
+            --include build/ \
+            --output ../dist/tentacle-web-${{ matrix.target.platform }}${EXT} \
+            build/index.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tentacle-web-${{ matrix.target.platform }}
+          path: dist/tentacle-web-*
+
+  release:
+    needs: compile
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
