@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
-import { GRAPHQL_URL } from '$env/dynamic/private';
+import { env } from '$env/dynamic/private';
 
-const graphqlEndpoint = GRAPHQL_URL || 'http://localhost:4000/graphql';
+const graphqlEndpoint = env.GRAPHQL_URL || 'http://localhost:4000/graphql';
 
 /**
  * SSE proxy for GraphQL subscriptions
