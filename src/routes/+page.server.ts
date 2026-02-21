@@ -1,76 +1,55 @@
 import type { PageServerLoad, Actions } from './$types';
 import { graphql } from '$lib/server/graphql';
-import { fail } from '@sveltejs/kit';
+import { actions as saltActions } from '@joyautomation/salt';
 
-interface Project {
-  id: string;
-  lastActivity: string | null;
-  isConnected: boolean;
-  variableCount: number;
-  isStale: boolean;
+interface Service {
+  serviceType: string;
+  moduleId: string;
+  uptime: number;
+  version: string | null;
+  metadata: Record<string, unknown> | null;
 }
 
 export const load: PageServerLoad = async () => {
   try {
-    const result = await graphql<{ projects: Project[] }>(`
+    const result = await graphql<{ services: Service[]; mode: string }>(`
       query {
-        projects {
-          id
-          lastActivity
-          isConnected
-          variableCount
-          isStale
+        mode
+        services {
+          serviceType
+          moduleId
+          uptime
+          version
+          metadata
         }
       }
     `);
 
     if (result.errors) {
       return {
-        projects: [],
+        services: [],
+        mode: 'dev',
+        graphqlConnected: false,
         error: result.errors[0].message
       };
     }
 
     return {
-      projects: result.data?.projects ?? [],
+      services: result.data?.services ?? [],
+      mode: result.data?.mode ?? 'dev',
+      graphqlConnected: true,
       error: null
     };
   } catch (e) {
     return {
-      projects: [],
-      error: e instanceof Error ? e.message : 'Failed to load projects'
+      services: [],
+      mode: 'dev',
+      graphqlConnected: false,
+      error: e instanceof Error ? e.message : 'Failed to connect to GraphQL'
     };
   }
 };
 
 export const actions: Actions = {
-  deleteProject: async ({ request }) => {
-    const formData = await request.formData();
-    const projectId = formData.get('projectId') as string;
-    const confirmText = formData.get('confirmText') as string;
-
-    if (!projectId || confirmText !== projectId) {
-      return fail(400, { error: 'Project name confirmation does not match' });
-    }
-
-    try {
-      const result = await graphql<{ deleteProject: boolean }>(`
-        mutation($projectId: String!) {
-          deleteProject(projectId: $projectId)
-        }
-      `, { projectId });
-
-      if (result.errors) {
-        return fail(500, { error: result.errors[0].message });
-      }
-
-      if (!result.data?.deleteProject) {
-        return fail(500, { error: 'Failed to delete project' });
-      }
-
-      return { success: true };
-    } catch (e) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Delete failed' });
-    }
-  }
+  setTheme: saltActions.setTheme,
 };

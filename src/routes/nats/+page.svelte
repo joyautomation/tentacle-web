@@ -12,14 +12,15 @@
     refreshing = false;
   }
 
-  // Group services by project
-  const servicesByProject = $derived(() => {
-    const grouped: Record<string, typeof data.services> = {};
+  // Group services by serviceType
+  type Service = (typeof data.services)[number];
+  const servicesByType = $derived(() => {
+    const grouped: Record<string, Service[]> = {};
     for (const service of data.services) {
-      if (!grouped[service.projectId]) {
-        grouped[service.projectId] = [];
+      if (!grouped[service.serviceType]) {
+        grouped[service.serviceType] = [];
       }
-      grouped[service.projectId].push(service);
+      grouped[service.serviceType].push(service);
     }
     return grouped;
   });
@@ -79,18 +80,14 @@
       <section class="section">
         <h2>Connection Status</h2>
         <div class="status-card">
-          <div class="status-indicator" class:connected={data.services.length > 0 || data.projects.length > 0}>
+          <div class="status-indicator" class:connected={data.services.length > 0}>
             <span class="dot"></span>
-            {data.services.length > 0 || data.projects.length > 0 ? 'Connected' : 'No Services'}
+            {data.services.length > 0 ? 'Connected' : 'No Services'}
           </div>
           <div class="status-stats">
             <div class="stat">
               <span class="stat-value">{data.services.length}</span>
               <span class="stat-label">Active Services</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value">{data.projects.length}</span>
-              <span class="stat-label">Projects</span>
             </div>
           </div>
         </div>
@@ -106,19 +103,19 @@
           </div>
         {:else}
           <div class="services-grid">
-            {#each Object.entries(servicesByProject()) as [projectId, projectServices]}
+            {#each Object.entries(servicesByType()) as [serviceType, typeServices]}
               <div class="project-card">
                 <div class="project-header">
-                  <h3>{projectId}</h3>
-                  <span class="service-count">{projectServices.length} service{projectServices.length !== 1 ? 's' : ''}</span>
+                  <h3>{serviceType}</h3>
+                  <span class="service-count">{typeServices.length} instance{typeServices.length !== 1 ? 's' : ''}</span>
                 </div>
                 <div class="service-list">
-                  {#each projectServices as service}
+                  {#each typeServices as service}
                     <div class="service-item">
                       <span class="service-icon">{getServiceIcon(service.serviceType)}</span>
                       <div class="service-info">
                         <span class="service-type">{service.serviceType}</span>
-                        <span class="service-instance">{service.instanceId}</span>
+                        <span class="service-instance">{service.moduleId}</span>
                       </div>
                       <div class="service-uptime">
                         <span class="uptime-value">{formatUptime(service.uptime)}</span>
@@ -127,40 +124,6 @@
                     </div>
                   {/each}
                 </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </section>
-
-      <!-- KV Buckets (Projects) -->
-      <section class="section">
-        <h2>KV Buckets</h2>
-        {#if data.projects.length === 0}
-          <div class="empty-state">
-            <p>No KV buckets found.</p>
-            <p class="hint">Create a project configuration to see buckets here.</p>
-          </div>
-        {:else}
-          <div class="buckets-table">
-            <div class="table-header">
-              <span>Bucket</span>
-              <span>Status</span>
-              <span>Variables</span>
-              <span>Last Activity</span>
-            </div>
-            {#each data.projects as project}
-              <div class="table-row">
-                <span class="bucket-name">
-                  <code>field-config-{project.id}</code>
-                </span>
-                <span class="bucket-status">
-                  <span class="status-badge" class:active={project.isConnected}>
-                    {project.isConnected ? 'Active' : 'Idle'}
-                  </span>
-                </span>
-                <span class="bucket-vars">{project.variableCount}</span>
-                <span class="bucket-activity">{formatTime(project.lastActivity)}</span>
               </div>
             {/each}
           </div>

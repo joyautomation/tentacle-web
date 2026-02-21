@@ -9,8 +9,10 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.0.0",
     "@fontsource/space-grotesk": "^5.0.0",
-    "@fontsource/righteous": "^5.0.0"
+    "@fontsource/righteous": "^5.0.0",
+    "@joyautomation/salt": "^0.0.21"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",

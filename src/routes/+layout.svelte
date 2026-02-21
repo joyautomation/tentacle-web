@@ -1,140 +1,145 @@
 <script lang="ts">
+  import '@fontsource/righteous';
+  import '@fontsource/space-grotesk';
+  import '@fontsource/ibm-plex-mono';
+  import '@joyautomation/salt/styles.scss';
   import '../app.scss';
-  import '@fontsource/space-grotesk/400.css';
-  import '@fontsource/space-grotesk/500.css';
-  import '@fontsource/space-grotesk/700.css';
-  import '@fontsource/righteous/400.css';
+  import { Toast } from '@joyautomation/salt';
+  import ThemeSwitch from '$lib/components/ThemeSwitch.svelte';
+  import { onMount } from 'svelte';
+  import { onNavigate } from '$app/navigation';
+  import { themeState, type Theme } from './theme.svelte';
 
-  let { children } = $props();
+  const { data, children } = $props();
+
+  onMount(() => {
+    themeState.initialize(data.theme as Theme | null);
+  });
+
+  onNavigate((navigation) => {
+    if (!document.startViewTransition) return;
+
+    return new Promise((resolve) => {
+      document.startViewTransition(async () => {
+        resolve();
+        await navigation.complete;
+      });
+    });
+  });
 </script>
 
-<div class="app-layout">
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <a href="/" class="logo">
-        <img src="/logo.png" alt="Tentacle" />
-      </a>
-    </div>
+<header class="app-header">
+  <a href="/" class="logo">
+    <img src="/logo.png" alt="Tentacle" />
+  </a>
+  <nav class="header-nav">
+    <!-- Menu items will go here -->
+  </nav>
+  <div class="header-actions">
+    <span
+      class="mode-badge"
+      class:mode-dev={data.mode === 'dev'}
+      class:mode-systemd={data.mode === 'systemd'}
+      class:mode-docker={data.mode === 'docker'}
+      class:mode-kubernetes={data.mode === 'kubernetes'}
+      class:mode-unknown={data.mode === 'unknown'}
+      title="Deployment mode: {data.mode}"
+    >
+      {data.mode}
+    </span>
+    <ThemeSwitch />
+  </div>
+</header>
 
-    <nav class="sidebar-nav">
-      <a href="/" class="nav-item">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="9"/>
-          <rect x="14" y="3" width="7" height="5"/>
-          <rect x="14" y="12" width="7" height="9"/>
-          <rect x="3" y="16" width="7" height="5"/>
-        </svg>
-        Dashboard
-      </a>
-      <a href="/nats" class="nav-item">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-        </svg>
-        NATS Diagnostics
-      </a>
-    </nav>
-
-    <div class="sidebar-footer">
-      <span class="version">v0.0.1</span>
-    </div>
-  </aside>
-
-  <main class="main-content">
-    {@render children()}
-  </main>
-</div>
+<main class="main-content">
+  {@render children()}
+</main>
+<Toast />
 
 <style lang="scss">
-  .app-layout {
+  .app-header {
     display: flex;
-    min-height: 100vh;
-  }
-
-  .sidebar {
-    width: var(--sidebar-width);
-    background: var(--theme-surface);
-    border-right: 1px solid var(--theme-border);
-    display: flex;
-    flex-direction: column;
+    align-items: center;
+    height: var(--header-height);
+    padding: 0 1.5rem;
+    background: transparent;
+    border-bottom: none;
     position: fixed;
     top: 0;
     left: 0;
-    bottom: 0;
+    right: 0;
     z-index: 100;
   }
 
-  .sidebar-header {
-    padding: 1.25rem;
-    border-bottom: 1px solid var(--theme-border);
-  }
-
   .logo {
-    display: block;
-    text-decoration: none;
-
-    img {
-      width: 100%;
-      height: auto;
-    }
-  }
-
-  .sidebar-nav {
-    flex: 1;
-    padding: 1rem 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .nav-item {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.625rem 0.875rem;
-    border-radius: var(--rounded-lg);
-    color: var(--theme-text-muted);
     text-decoration: none;
-    font-size: 0.875rem;
-    font-weight: 500;
-    transition: all 0.15s ease;
+    flex-shrink: 0;
 
-    svg {
-      opacity: 0.7;
-    }
-
-    &:hover {
-      background: var(--theme-surface-hover);
-      color: var(--theme-text);
-
-      svg {
-        opacity: 1;
-      }
-    }
-
-    &.active {
-      background: rgba(6, 182, 212, 0.1);
-      color: var(--theme-primary);
-
-      svg {
-        opacity: 1;
-      }
+    img {
+      height: 2rem;
+      width: auto;
     }
   }
 
-  .sidebar-footer {
-    padding: 1rem 1.25rem;
-    border-top: 1px solid var(--theme-border);
+  .header-nav {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: 2rem;
   }
 
-  .version {
-    font-size: 0.75rem;
-    color: var(--theme-text-muted);
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-left: auto;
+  }
+
+  .mode-badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.1875rem 0.5rem;
+    border-radius: var(--rounded-full);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid transparent;
+
+    &.mode-dev {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--color-amber-500, #f59e0b);
+      border-color: rgba(245, 158, 11, 0.25);
+    }
+
+    &.mode-systemd {
+      background: rgba(14, 165, 233, 0.12);
+      color: var(--color-sky-500, #0ea5e9);
+      border-color: rgba(14, 165, 233, 0.25);
+    }
+
+    &.mode-docker {
+      background: rgba(59, 130, 246, 0.12);
+      color: var(--color-blue-500, #3b82f6);
+      border-color: rgba(59, 130, 246, 0.25);
+    }
+
+    &.mode-kubernetes {
+      background: rgba(168, 85, 247, 0.12);
+      color: var(--color-purple-500, #a855f7);
+      border-color: rgba(168, 85, 247, 0.25);
+    }
+
+    &.mode-unknown {
+      background: rgba(107, 114, 128, 0.12);
+      color: var(--theme-text-muted);
+      border-color: rgba(107, 114, 128, 0.25);
+    }
   }
 
   .main-content {
-    flex: 1;
-    margin-left: var(--sidebar-width);
-    min-height: 100vh;
+    margin-top: var(--header-height);
+    min-height: calc(100vh - var(--header-height));
   }
 </style>

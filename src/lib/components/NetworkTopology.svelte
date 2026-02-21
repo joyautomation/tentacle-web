@@ -5,8 +5,7 @@
 
   interface Service {
     serviceType: string;
-    instanceId: string;
-    projectId: string;
+    moduleId: string;
     uptime: number;
     metadata?: Record<string, unknown>;
   }
@@ -19,12 +18,11 @@
   }
 
   interface Props {
-    projectId: string;
     services: Service[];
     devices: Device[];
   }
 
-  let { projectId, services, devices }: Props = $props();
+  let { services, devices }: Props = $props();
 
   type NodeType = 'nats' | 'ethernetip' | 'graphql' | 'mqtt' | 'plc';
 
@@ -91,7 +89,7 @@
 
     // Add ethernetip services
     ethernetipServices.forEach((service, i) => {
-      const nodeId = `ethernetip-${service.instanceId}`;
+      const nodeId = `ethernetip-${service.moduleId}`;
       const plcCount = (service.metadata?.plcCount as number) || 0;
       nodes.push({
         id: nodeId,
@@ -104,7 +102,7 @@
 
     // Add graphql services
     graphqlServices.forEach((service) => {
-      const nodeId = `graphql-${service.instanceId}`;
+      const nodeId = `graphql-${service.moduleId}`;
       nodes.push({
         id: nodeId,
         name: 'GraphQL',
@@ -116,7 +114,7 @@
 
     // Add mqtt services
     mqttServices.forEach((service) => {
-      const nodeId = `mqtt-${service.instanceId}`;
+      const nodeId = `mqtt-${service.moduleId}`;
       nodes.push({
         id: nodeId,
         name: 'MQTT',
@@ -128,7 +126,7 @@
 
     // Add PLCs (devices) - connect to first ethernetip service if exists
     const ethernetipNodeId = ethernetipServices.length > 0
-      ? `ethernetip-${ethernetipServices[0].instanceId}`
+      ? `ethernetip-${ethernetipServices[0].moduleId}`
       : null;
 
     devices.forEach((device) => {
@@ -152,13 +150,13 @@
     switch (node.type) {
       case 'plc':
         const deviceId = node.id.replace('plc-', '');
-        goto(`/projects/${projectId}/devices/${deviceId}`);
+        goto(`/devices/${deviceId}`);
         break;
       case 'ethernetip':
-        goto(`/projects/${projectId}/devices`);
+        goto(`/devices`);
         break;
       case 'mqtt':
-        goto(`/projects/${projectId}/variables/mqtt`);
+        goto(`/mqtt`);
         break;
       default:
         // No navigation for nats or graphql
