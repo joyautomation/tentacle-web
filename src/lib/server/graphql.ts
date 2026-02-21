@@ -1,6 +1,6 @@
 // Server-side GraphQL client - never imported on client
 
-import { GRAPHQL_URL } from '$env/static/private';
+import { GRAPHQL_URL } from '$env/dynamic/private';
 
 export type GraphQLResponse<T> = {
   data?: T;
