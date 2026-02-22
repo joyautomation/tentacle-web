@@ -6,15 +6,8 @@ on:
       - 'v*.*.*'
 
 jobs:
-  compile:
-    strategy:
-      matrix:
-        target:
-          - { deno: x86_64-unknown-linux-gnu, platform: linux-amd64, runner: ubuntu-latest }
-          - { deno: aarch64-unknown-linux-gnu, platform: linux-arm64, runner: ubuntu-latest }
-          - { deno: x86_64-pc-windows-msvc, platform: windows-amd64, runner: ubuntu-latest }
-          - { deno: aarch64-apple-darwin, platform: darwin-arm64, runner: macos-14 }
-    runs-on: ${{ matrix.target.runner }}
+  package:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,24 +22,18 @@ jobs:
           cd tentacle-web
           deno task build
 
-      - name: Compile for ${{ matrix.target.platform }}
+      - name: Package build output
         run: |
-          EXT=""
-          if [[ "${{ matrix.target.platform }}" == windows-* ]]; then EXT=".exe"; fi
-          cd tentacle-web
-          deno compile --no-check --allow-all \
-            --target ${{ matrix.target.deno }} \
-            --include build/ \
-            --output ../dist/tentacle-web-${{ matrix.target.platform }}${EXT} \
-            build/index.js
+          # Package the build/ dir — Deno runs this directly on any platform
+          tar czf tentacle-web-build.tar.gz -C tentacle-web build/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tentacle-web-${{ matrix.target.platform }}
-          path: dist/tentacle-web-*
+          name: tentacle-web-build
+          path: tentacle-web-build.tar.gz
 
   release:
-    needs: compile
+    needs: package
     runs-on: ubuntu-latest
     permissions:
       contents: write
