@@ -25,7 +25,7 @@ jobs:
       - name: Package build output
         run: |
           # Package the build/ dir — Deno runs this directly on any platform
-          tar czf tentacle-web-build.tar.gz -C tentacle-web build/
+          tar czf tentacle-web-build.tar.gz --exclude='.git' -C tentacle-web build/
 
       - uses: actions/upload-artifact@v4
         with:
