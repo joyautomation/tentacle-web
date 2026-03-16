@@ -1,14 +1,14 @@
 <script lang="ts">
-  import '@fontsource/righteous';
-  import '@fontsource/space-grotesk';
-  import '@fontsource/ibm-plex-mono';
-  import '@joyautomation/salt/styles.scss';
-  import '../app.scss';
-  import { Toast } from '@joyautomation/salt';
-  import ThemeSwitch from '$lib/components/ThemeSwitch.svelte';
-  import { onMount } from 'svelte';
-  import { onNavigate } from '$app/navigation';
-  import { themeState, type Theme } from './theme.svelte';
+  import "@fontsource/righteous";
+  import "@fontsource/space-grotesk";
+  import "@fontsource/ibm-plex-mono";
+  import "@joyautomation/salt/styles.scss";
+  import "../app.scss";
+  import { Toast } from "@joyautomation/salt";
+  import ThemeSwitch from "$lib/components/ThemeSwitch.svelte";
+  import { onMount } from "svelte";
+  import { onNavigate } from "$app/navigation";
+  import { themeState, type Theme } from "./theme.svelte";
 
   const { data, children } = $props();
 
@@ -38,11 +38,11 @@
   <div class="header-actions">
     <span
       class="mode-badge"
-      class:mode-dev={data.mode === 'dev'}
-      class:mode-systemd={data.mode === 'systemd'}
-      class:mode-docker={data.mode === 'docker'}
-      class:mode-kubernetes={data.mode === 'kubernetes'}
-      class:mode-unknown={data.mode === 'unknown'}
+      class:mode-dev={data.mode === "dev"}
+      class:mode-systemd={data.mode === "systemd"}
+      class:mode-docker={data.mode === "docker"}
+      class:mode-kubernetes={data.mode === "kubernetes"}
+      class:mode-unknown={data.mode === "unknown"}
       title="Deployment mode: {data.mode}"
     >
       {data.mode}
@@ -62,7 +62,7 @@
     align-items: center;
     height: var(--header-height);
     padding: 0 1.5rem;
-    background: transparent;
+    background-color: var(--theme-background);
     border-bottom: none;
     position: fixed;
     top: 0;
@@ -108,33 +108,33 @@
     border: 1px solid transparent;
 
     &.mode-dev {
-      background: rgba(245, 158, 11, 0.12);
-      color: var(--color-amber-500, #f59e0b);
-      border-color: rgba(245, 158, 11, 0.25);
+      background: var(--badge-amber-bg);
+      color: var(--badge-amber-text);
+      border-color: var(--badge-amber-border);
     }
 
     &.mode-systemd {
-      background: rgba(14, 165, 233, 0.12);
-      color: var(--color-sky-500, #0ea5e9);
-      border-color: rgba(14, 165, 233, 0.25);
+      background: var(--badge-sky-bg);
+      color: var(--badge-sky-text);
+      border-color: var(--badge-sky-border);
     }
 
     &.mode-docker {
-      background: rgba(59, 130, 246, 0.12);
-      color: var(--color-blue-500, #3b82f6);
-      border-color: rgba(59, 130, 246, 0.25);
+      background: var(--badge-blue-bg);
+      color: var(--badge-blue-text);
+      border-color: var(--badge-blue-border);
     }
 
     &.mode-kubernetes {
-      background: rgba(168, 85, 247, 0.12);
-      color: var(--color-purple-500, #a855f7);
-      border-color: rgba(168, 85, 247, 0.25);
+      background: var(--badge-purple-bg);
+      color: var(--badge-purple-text);
+      border-color: var(--badge-purple-border);
     }
 
     &.mode-unknown {
-      background: rgba(107, 114, 128, 0.12);
-      color: var(--theme-text-muted);
-      border-color: rgba(107, 114, 128, 0.25);
+      background: var(--badge-muted-bg);
+      color: var(--badge-muted-text);
+      border-color: var(--badge-muted-border);
     }
   }
 

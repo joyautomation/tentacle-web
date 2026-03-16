@@ -26,6 +26,8 @@
     if (path.endsWith('/info')) return 'info';
     if (path.endsWith('/status')) return 'status';
     if (path.endsWith('/config')) return 'config';
+    if (path.endsWith('/metrics')) return 'metrics';
+    if (path.endsWith('/devices')) return 'devices';
     return 'default';
   });
 </script>
@@ -48,7 +50,7 @@
         Config
       </a>
       <a href="/services/{serviceType}/info" class="tab" class:active={currentTab() === 'info'}>
-        Info
+        Variables
       </a>
       <a href="/services/{serviceType}/logs" class="tab" class:active={currentTab() === 'logs'}>
         Logs
@@ -85,6 +87,26 @@
       </a>
       <a href="/services/{serviceType}/traffic" class="tab" class:active={currentTab() === 'traffic'}>
         Traffic
+      </a>
+    {:else if serviceType === 'mqtt'}
+      <a href="/services/{serviceType}" class="tab" class:active={currentTab() === 'default'}>
+        Overview
+      </a>
+      <a href="/services/{serviceType}/metrics" class="tab" class:active={currentTab() === 'metrics'}>
+        Metrics
+      </a>
+      <a href="/services/{serviceType}/logs" class="tab" class:active={currentTab() === 'logs'}>
+        Logs
+      </a>
+    {:else if serviceType === 'ethernetip'}
+      <a href="/services/{serviceType}" class="tab" class:active={currentTab() === 'default'}>
+        Overview
+      </a>
+      <a href="/services/{serviceType}/devices" class="tab" class:active={currentTab() === 'devices'}>
+        Devices
+      </a>
+      <a href="/services/{serviceType}/logs" class="tab" class:active={currentTab() === 'logs'}>
+        Logs
       </a>
     {:else}
       <a href="/services/{serviceType}" class="tab" class:active={currentTab() === 'default'}>

@@ -532,17 +532,17 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    background: color-mix(in srgb, var(--theme-text-muted) 15%, transparent);
-    color: var(--theme-text-muted);
+    background: var(--badge-muted-bg);
+    color: var(--badge-muted-text);
 
     &.up {
-      background: color-mix(in srgb, var(--color-green-500, #22c55e) 15%, transparent);
-      color: var(--color-green-500, #22c55e);
+      background: var(--badge-green-bg);
+      color: var(--badge-green-text);
     }
 
     &.down {
-      background: color-mix(in srgb, var(--color-red-500, #ef4444) 15%, transparent);
-      color: var(--color-red-500, #ef4444);
+      background: var(--badge-red-bg);
+      color: var(--badge-red-text);
     }
   }
 
@@ -680,8 +680,8 @@
     font-weight: 600;
     padding: 0.125rem 0.5rem;
     border-radius: var(--rounded-md, 4px);
-    color: var(--color-blue-500, #3b82f6);
-    background: color-mix(in srgb, var(--color-blue-500, #3b82f6) 12%, transparent);
+    color: var(--badge-blue-text);
+    background: var(--badge-blue-bg);
   }
 
   .flow-diagram {

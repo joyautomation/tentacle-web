@@ -28,7 +28,7 @@
       logs = [...initialLogs].reverse();
     }
   });
-  let showDebug = $state(true);
+  let showDebug = $state(false);
   let showInfo = $state(true);
   let showWarn = $state(true);
   let showError = $state(true);

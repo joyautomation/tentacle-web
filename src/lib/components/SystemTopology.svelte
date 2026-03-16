@@ -18,7 +18,7 @@
 
   let { services, graphqlConnected }: Props = $props();
 
-  type NodeType = 'nats' | 'graphql' | 'web' | 'ethernetip' | 'mqtt' | 'plc' | 'network' | 'nftables';
+  type NodeType = 'nats' | 'graphql' | 'web' | 'ethernetip' | 'mqtt' | 'plc' | 'network' | 'nftables' | 'device';
 
   type NodeDatum = {
     id: string;
@@ -38,6 +38,10 @@
   type LinkDatum = d3.SimulationLinkDatum<NodeDatum> & {
     source: NodeDatum | string;
     target: NodeDatum | string;
+    /** Whether data is actively flowing on this link */
+    active?: boolean;
+    /** 1 = source→target, -1 = target→source */
+    flowDirection?: 1 | -1;
   };
 
   let container: HTMLDivElement;
@@ -48,12 +52,8 @@
   function getNodeColor(type: NodeType): string {
     switch (type) {
       case 'nats': return 'var(--color-purple-500, #a855f7)';
-      case 'graphql': return 'var(--color-pink-500, #ec4899)';
-      case 'web': return 'var(--color-sky-500, #0ea5e9)';
-      case 'ethernetip': return 'var(--color-cyan-500, #06b6d4)';
-      case 'mqtt': return 'var(--color-green-500, #22c55e)';
-      case 'plc': return 'var(--color-amber-500, #f59e0b)';
-      default: return 'var(--theme-text-muted)';
+      case 'device': return 'var(--color-amber-500, #f59e0b)';
+      default: return 'var(--color-teal-500, #14b8a6)';
     }
   }
 
@@ -65,6 +65,7 @@
       case 'ethernetip':
       case 'mqtt':
       case 'plc': return 35;
+      case 'device': return 25;
       default: return 30;
     }
   }
@@ -141,7 +142,58 @@
           depth: 1
         });
         links.push({ source: 'nats', target: nodeId });
+
+        // Add device nodes downstream of EtherNet/IP
+        if (service.serviceType === 'ethernetip' && service.metadata?.devices) {
+          try {
+            const devicesStr = service.metadata.devices as string;
+            const devices: Array<{ deviceId: string; host: string; port: number; tagCount: number }> =
+              typeof devicesStr === 'string' ? JSON.parse(devicesStr) : devicesStr;
+            for (const device of devices) {
+              const deviceNodeId = `device-${device.deviceId}`;
+              if (!nodes.some(n => n.id === deviceNodeId)) {
+                nodes.push({
+                  id: deviceNodeId,
+                  name: device.deviceId,
+                  type: 'device',
+                  subtitle: `${device.host}:${device.port} (${device.tagCount} tags)`,
+                  connected: true,
+                  depth: 2
+                });
+                links.push({ source: nodeId, target: deviceNodeId });
+              }
+            }
+          } catch { /* ignore malformed devices metadata */ }
+        }
       });
+
+    // Mark data-flow links as active and set flow direction
+    // EtherNet/IP: data flows from device → EIP → NATS (inbound to NATS)
+    // MQTT: data flows from NATS → MQTT (outbound from NATS)
+    const dataFlowTypes = new Set<NodeType>(['ethernetip', 'mqtt', 'device']);
+    for (const l of links) {
+      const srcId = typeof l.source === 'string' ? l.source : (l.source as NodeDatum).id;
+      const tgtId = typeof l.target === 'string' ? l.target : (l.target as NodeDatum).id;
+      const src = nodes.find(n => n.id === srcId);
+      const tgt = nodes.find(n => n.id === tgtId);
+      if (src?.connected && tgt?.connected &&
+          (dataFlowTypes.has(src.type) || dataFlowTypes.has(tgt.type))) {
+        l.active = true;
+        // Determine flow direction based on service types
+        if (tgt.type === 'device' || src.type === 'device') {
+          // device → EIP: flow from device toward NATS (target→source since link is eip→device)
+          l.flowDirection = -1;
+        } else if (tgt.type === 'ethernetip' || src.type === 'ethernetip') {
+          // EIP → NATS: flow from EIP toward NATS (target→source since link is nats→eip)
+          l.flowDirection = -1;
+        } else if (tgt.type === 'mqtt' || src.type === 'mqtt') {
+          // NATS → MQTT: flow from NATS toward MQTT (source→target since link is nats→mqtt)
+          l.flowDirection = 1;
+        } else {
+          l.flowDirection = 1;
+        }
+      }
+    }
 
     return { nodes, links };
   }
@@ -305,6 +357,19 @@
         return (!targetNode?.connected || !sourceNode?.connected) ? '4 4' : 'none';
       });
 
+    // Animated marching-dash overlay on active data-flow links (drawn before nodes so nodes cover them)
+    const activeLinks = links.filter(l => l.active);
+    const flowOverlay = g.append('g')
+      .attr('class', 'flow-overlay')
+      .selectAll('line')
+      .data(activeLinks)
+      .join('line')
+      .attr('stroke', 'var(--color-sky-400, #38bdf8)')
+      .attr('stroke-width', 2)
+      .attr('stroke-opacity', 0.7)
+      .attr('stroke-dasharray', '6 8')
+      .attr('class', d => d.flowDirection === -1 ? 'flow-line flow-reverse' : 'flow-line');
+
     // Draw nodes
     const nodeGroups = g.append('g')
       .attr('class', 'nodes')
@@ -341,6 +406,7 @@
           case 'plc': return 'PLC';
           case 'network': return 'NET';
           case 'nftables': return 'NAT';
+          case 'device': return 'DEV';
           default: return d.name.slice(0, 4).toUpperCase();
         }
       });
@@ -382,8 +448,8 @@
         if (!event.active) simulation?.alphaTarget(0);
         d.fx = null;
         d.fy = null;
-        // Navigate on click (not drag)
-        if (!dragMoved) {
+        // Navigate on click (not drag) — skip device nodes (no detail page)
+        if (!dragMoved && d.type !== 'device') {
           goto(`/services/${d.type}`);
         }
       });
@@ -399,6 +465,12 @@
         .attr('y2', d => (d.target as NodeDatum).y ?? 0);
 
       nodeGroups.attr('transform', d => `translate(${d.x ?? 0},${d.y ?? 0})`);
+
+      flowOverlay
+        .attr('x1', d => (d.source as NodeDatum).x ?? 0)
+        .attr('y1', d => (d.source as NodeDatum).y ?? 0)
+        .attr('x2', d => (d.target as NodeDatum).x ?? 0)
+        .attr('y2', d => (d.target as NodeDatum).y ?? 0);
     });
   }
 
@@ -456,5 +528,21 @@
       stroke-width: 4;
       filter: url(#glow) brightness(1.2);
     }
+
+    :global(.flow-line) {
+      animation: march 1.2s linear infinite;
+    }
+
+    :global(.flow-line.flow-reverse) {
+      animation: march-reverse 1.2s linear infinite;
+    }
+  }
+
+  @keyframes march {
+    to { stroke-dashoffset: -14; }
+  }
+
+  @keyframes march-reverse {
+    to { stroke-dashoffset: 14; }
   }
 </style>

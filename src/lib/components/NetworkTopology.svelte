@@ -51,11 +51,7 @@
   function getNodeColor(type: NodeType): string {
     switch (type) {
       case 'nats': return 'var(--color-purple-500, #a855f7)';
-      case 'ethernetip': return 'var(--color-cyan-500, #06b6d4)';
-      case 'graphql': return 'var(--color-pink-500, #ec4899)';
-      case 'mqtt': return 'var(--color-green-500, #22c55e)';
-      case 'plc': return 'var(--color-amber-500, #f59e0b)';
-      default: return 'var(--theme-text-muted)';
+      default: return 'var(--color-teal-500, #14b8a6)';
     }
   }
 

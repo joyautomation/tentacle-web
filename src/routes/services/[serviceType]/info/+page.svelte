@@ -1,189 +1,299 @@
 <script lang="ts">
   import type { PageData } from './$types';
+  import { subscribe } from '$lib/graphql/client';
+  import { onMount } from 'svelte';
 
   let { data }: { data: PageData } = $props();
 
-  const serviceNames: Record<string, string> = {
-    nats: 'NATS',
-    graphql: 'GraphQL',
-    web: 'Web UI',
-    ethernetip: 'EtherNet/IP',
-    mqtt: 'MQTT',
+  let expandedTypes: Record<string, boolean> = $state({});
+  let expandedInstances: Record<string, boolean> = $state({});
+
+  type Variable = {
+    variableId: string;
+    value: unknown;
+    datatype: string;
+    udtType: string | null;
+    quality: string;
+    moduleId: string;
+    deviceId: string | null;
+    lastUpdated: string;
   };
 
-  const serviceDescriptions: Record<string, string> = {
-    nats: 'Central message bus for inter-service communication',
-    graphql: 'GraphQL API gateway for the tentacle platform',
-    web: 'Web-based management interface',
-    ethernetip: 'EtherNet/IP scanner for Allen-Bradley/Rockwell PLCs',
-    mqtt: 'MQTT Sparkplug B bridge for publishing PLC data',
+  // Mutable variable map for live updates
+  let variableMap: Map<string, Variable> = $state(new Map());
+
+  // Debounced version counter — drives $derived recomputation
+  let updateVersion = $state(0);
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleFlush() {
+    if (!flushTimer) {
+      flushTimer = setTimeout(() => {
+        flushTimer = null;
+        updateVersion++;
+      }, 500);
+    }
+  }
+
+  // Initialize from server data
+  $effect(() => {
+    const m = new Map<string, Variable>();
+    for (const v of data.variables) {
+      m.set(v.variableId, v);
+    }
+    variableMap = m;
+  });
+
+  // Subscribe to batched variable updates via SSE — merge value/quality/lastUpdated
+  // to preserve udtType and other metadata from the initial query
+  onMount(() => {
+    const unsub = subscribe<{ variableBatchUpdates: Variable[] }>(
+      `subscription { variableBatchUpdates { variableId value datatype quality moduleId deviceId lastUpdated } }`,
+      undefined,
+      (result) => {
+        const batch = result.variableBatchUpdates;
+        if (batch) {
+          for (const v of batch) {
+            if (variableMap.has(v.variableId)) {
+              const existing = variableMap.get(v.variableId)!;
+              variableMap.set(v.variableId, { ...existing, value: v.value, quality: v.quality, lastUpdated: v.lastUpdated });
+            }
+          }
+          scheduleFlush();
+        }
+      }
+    );
+    return () => {
+      if (flushTimer) clearTimeout(flushTimer);
+      unsub();
+    };
+  });
+
+  type StructInstance = {
+    name: string;
+    members: { name: string; variable: Variable }[];
   };
 
-  function formatUptime(seconds: number): string {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    const parts: string[] = [];
-    if (days > 0) parts.push(`${days}d`);
-    if (hours > 0) parts.push(`${hours}h`);
-    if (minutes > 0) parts.push(`${minutes}m`);
-    if (parts.length === 0) parts.push(`${secs}s`);
-    return parts.join(' ');
+  type StructType = {
+    typeName: string;
+    instances: StructInstance[];
+    memberNames: string[];
+  };
+
+  // Build organized view: UDT types (grouped by udtType from tentacle-plc) and scalars
+  const organized = $derived(() => {
+    void updateVersion; // depend on debounced version
+    const instanceMap = new Map<string, { name: string; udtType?: string; members: Map<string, Variable> }>();
+    const scalars: Variable[] = [];
+    const vars = [...variableMap.values()];
+
+    for (const v of vars) {
+      const dotIdx = v.variableId.indexOf('.');
+      if (dotIdx === -1) {
+        if (v.datatype === 'udt') {
+          // UDT parent — store so we can grab its udtType
+          if (!instanceMap.has(v.variableId)) {
+            instanceMap.set(v.variableId, { name: v.variableId, udtType: v.udtType ?? undefined, members: new Map() });
+          } else {
+            instanceMap.get(v.variableId)!.udtType = v.udtType ?? undefined;
+          }
+        } else {
+          scalars.push(v);
+        }
+      } else {
+        const baseName = v.variableId.substring(0, dotIdx);
+        const memberName = v.variableId.substring(dotIdx + 1);
+        if (!instanceMap.has(baseName)) {
+          instanceMap.set(baseName, { name: baseName, udtType: v.udtType ?? undefined, members: new Map() });
+        }
+        instanceMap.get(baseName)!.members.set(memberName, v);
+      }
+    }
+
+    // Group instances by udtType name
+    const typeMap = new Map<string, StructInstance[]>();
+    for (const [key, inst] of instanceMap) {
+      // If no atomic members, synthesize from the UDT value object
+      if (inst.members.size === 0) {
+        const parent = variableMap.get(key);
+        if (parent && parent.datatype === 'udt' && parent.value && typeof parent.value === 'object') {
+          for (const [memberName, memberValue] of Object.entries(parent.value as Record<string, unknown>)) {
+            inst.members.set(memberName, {
+              variableId: `${key}.${memberName}`,
+              value: memberValue,
+              datatype: typeof memberValue === 'boolean' ? 'boolean' : typeof memberValue === 'string' ? 'string' : 'number',
+              udtType: parent.udtType,
+              quality: parent.quality,
+              moduleId: parent.moduleId,
+              deviceId: parent.deviceId,
+              lastUpdated: parent.lastUpdated,
+            });
+          }
+        }
+        if (inst.members.size === 0) continue; // still empty, skip
+      }
+      const typeName = inst.udtType ?? 'Unknown Type';
+      if (!typeMap.has(typeName)) typeMap.set(typeName, []);
+      const memberNames = Array.from(inst.members.keys()).sort();
+      typeMap.get(typeName)!.push({
+        name: inst.name,
+        members: memberNames.map(m => ({ name: m, variable: inst.members.get(m)! })),
+      });
+    }
+
+    // Convert to sorted array
+    const structTypes: StructType[] = [...typeMap.entries()]
+      .map(([typeName, instances]) => ({
+        typeName,
+        instances: instances.sort((a, b) => a.name.localeCompare(b.name)),
+        memberNames: instances[0]?.members.map(m => m.name) ?? [],
+      }))
+      .sort((a, b) => a.typeName.localeCompare(b.typeName));
+
+    return { structTypes, scalars: scalars.sort((a, b) => a.variableId.localeCompare(b.variableId)) };
+  });
+
+  function toggleType(name: string) {
+    expandedTypes[name] = !expandedTypes[name];
   }
 
-  function formatDate(iso: string): string {
-    return new Date(iso).toLocaleString();
+  function toggleInstance(name: string) {
+    expandedInstances[name] = !expandedInstances[name];
   }
 
-  const isManaged = $derived(data.module !== null);
-  const isRunning = $derived(data.instances.length > 0 || (data.module?.running ?? false));
-  const description = $derived(
-    data.module?.description ?? serviceDescriptions[data.serviceType] ?? 'Tentacle service'
-  );
+  function formatValue(value: unknown): string {
+    if (value === null || value === undefined) return '—';
+    if (typeof value === 'number') {
+      if (Number.isInteger(value)) return value.toString();
+      return value.toFixed(3);
+    }
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return String(value);
+  }
+
+  function getQualityColor(quality: string): string {
+    if (quality === 'good') return 'var(--color-green-500, #22c55e)';
+    if (quality === 'bad') return 'var(--color-red-500, #ef4444)';
+    return 'var(--theme-text-muted)';
+  }
 </script>
 
-<div class="service-overview">
-  <div class="status-header">
-    <div class="status-info">
-      <h1>{serviceNames[data.serviceType] || data.serviceType}</h1>
-      <p class="description">{description}</p>
-    </div>
-    <span class="status-badge" class:running={isRunning} class:stopped={!isRunning}>
-      {isRunning ? 'Running' : 'Stopped'}
-    </span>
-  </div>
-
+<div class="variables-page">
   {#if data.error}
-    <div class="info-box error">
+    <div class="error-box">
       <p>{data.error}</p>
     </div>
   {/if}
 
-  {#if data.instances.length > 0}
+  <div class="variables-header">
+    <h1>Variables</h1>
+    <span class="count-badge">{variableMap.size} variables</span>
+  </div>
+
+  <!-- UDT Variables grouped by type -->
+  {#if organized().structTypes.length > 0}
     <section class="section">
-      <h2>Instances</h2>
-      <div class="instances">
-        {#each data.instances as instance}
-          <div class="card">
-            <div class="card-header">
-              <span class="instance-id">{instance.moduleId}</span>
-              <span class="status-dot running"></span>
-            </div>
-            <div class="card-body">
-              <div class="detail-row">
-                <span class="label">Uptime</span>
-                <span class="value">{formatUptime(instance.uptime)}</span>
-              </div>
-              <div class="detail-row">
-                <span class="label">Started</span>
-                <span class="value">{formatDate(instance.startedAt)}</span>
-              </div>
-              {#if instance.version}
-                <div class="detail-row">
-                  <span class="label">Version</span>
-                  <span class="value">{instance.version}</span>
-                </div>
-              {/if}
-              {#if instance.metadata}
-                {#each Object.entries(instance.metadata) as [key, value]}
-                  <div class="detail-row">
-                    <span class="label">{key}</span>
-                    <span class="value">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+      <h2>UDT Variables</h2>
+      <div class="tree">
+        {#each organized().structTypes as structType}
+          <div class="tree-node">
+            <button class="tree-toggle" onclick={() => toggleType(structType.typeName)}>
+              <svg class="chevron" class:expanded={expandedTypes[structType.typeName]} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+              <span class="template-icon">T</span>
+              <span class="tree-label">{structType.typeName}</span>
+              <span class="member-count">{structType.instances.length} instances</span>
+            </button>
+            {#if expandedTypes[structType.typeName]}
+              <div class="tree-children">
+                {#each structType.instances as instance}
+                  <div class="tree-node">
+                    <button class="tree-toggle" onclick={() => toggleInstance(instance.name)}>
+                      <svg class="chevron" class:expanded={expandedInstances[instance.name]} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18l6-6-6-6"/>
+                      </svg>
+                      <span class="tree-label">{instance.name}</span>
+                      <span class="member-count">{instance.members.length} members</span>
+                    </button>
+                    {#if expandedInstances[instance.name]}
+                      <div class="tree-children">
+                        {#each instance.members as member}
+                          <div class="tree-leaf">
+                            <span class="quality-dot" style="background: {getQualityColor(member.variable.quality)}" title="Quality: {member.variable.quality}"></span>
+                            <span class="leaf-name">{member.name}</span>
+                            <span class="leaf-value">{formatValue(member.variable.value)}</span>
+                            <span class="leaf-type">{member.variable.datatype}</span>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
                   </div>
                 {/each}
-              {/if}
-            </div>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
     </section>
-  {:else if !data.error}
-    <div class="info-box">
-      <p>No active instances of this service found.</p>
-    </div>
   {/if}
 
-  {#if isManaged && data.module}
+  <!-- Scalar variables -->
+  {#if organized().scalars.length > 0}
     <section class="section">
-      <h2>Module Info</h2>
-      <div class="card">
-        <div class="card-body">
-          <div class="detail-row">
-            <span class="label">Repository</span>
-            <a href="https://github.com/{data.module.repo}" target="_blank" rel="noopener" class="value link">
-              {data.module.repo}
-            </a>
+      <h2>Scalar Variables</h2>
+      <div class="tree">
+        {#each organized().scalars as variable}
+          <div class="tree-leaf">
+            <span class="quality-dot" style="background: {getQualityColor(variable.quality)}" title="Quality: {variable.quality}"></span>
+            <span class="leaf-name">{variable.variableId}</span>
+            <span class="leaf-value">{formatValue(variable.value)}</span>
+            <span class="leaf-type">{variable.datatype}</span>
           </div>
-          <div class="detail-row">
-            <span class="label">Installed</span>
-            <span class="value">{data.module.installed ? 'Yes' : 'No'}</span>
-          </div>
-        </div>
+        {/each}
       </div>
     </section>
+  {/if}
 
-    {#if Object.keys(data.module.config).length > 0}
-      <section class="section">
-        <h2>Configuration</h2>
-        <div class="card">
-          <div class="card-body">
-            {#each data.module.configSchema as field}
-              <div class="detail-row">
-                <span class="label">{field.label}</span>
-                <span class="value mono">
-                  {#if field.envVar.toLowerCase().includes('password')}
-                    ****
-                  {:else}
-                    {data.module.config[field.envVar] || field.default || '—'}
-                  {/if}
-                </span>
-              </div>
-            {/each}
-          </div>
-        </div>
-      </section>
-    {/if}
+  {#if variableMap.size === 0 && !data.error}
+    <div class="empty-state">
+      <p>No variables being polled. Start a PLC project to see variables here.</p>
+    </div>
   {/if}
 </div>
 
 <style lang="scss">
-  .service-overview {
+  .variables-page {
     padding: 2rem;
-    max-width: 800px;
+    max-width: 900px;
   }
 
-  .status-header {
+  .variables-header {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 2rem;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--theme-text);
+      margin: 0;
+    }
   }
 
-  .status-info {
-    h1 { font-size: 1.5rem; font-weight: 600; color: var(--theme-text); margin: 0; }
-    .description { margin: 0.25rem 0 0; color: var(--theme-text-muted); font-size: 0.875rem; }
-  }
-
-  .status-badge {
-    padding: 0.25rem 0.75rem;
-    border-radius: var(--rounded-full);
+  .count-badge {
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--rounded-md);
     font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    &.running {
-      background: color-mix(in srgb, var(--color-green-500, #22c55e) 15%, transparent);
-      color: var(--color-green-500, #22c55e);
-    }
-    &.stopped {
-      background: color-mix(in srgb, var(--theme-text-muted) 15%, transparent);
-      color: var(--theme-text-muted);
-    }
+    font-family: 'IBM Plex Mono', monospace;
+    background: var(--badge-teal-bg);
+    color: var(--badge-teal-text);
   }
 
   .section {
     margin-bottom: 1.5rem;
+
     h2 {
       font-size: 0.8125rem;
       font-weight: 600;
@@ -194,84 +304,150 @@
     }
   }
 
-  .card {
+  .tree {
     background: var(--theme-surface);
     border: 1px solid var(--theme-border);
     border-radius: var(--rounded-lg);
     overflow: hidden;
   }
 
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--theme-border);
-    background: color-mix(in srgb, var(--theme-surface) 50%, var(--theme-background));
-  }
-
-  .instance-id {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.8125rem;
-    color: var(--theme-text);
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    &.running {
-      background: var(--color-green-500, #22c55e);
-      box-shadow: 0 0 6px var(--color-green-500, #22c55e);
-    }
-  }
-
-  .card-body {
-    padding: 0.75rem 1rem;
-  }
-
-  .detail-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.375rem 0;
+  .tree-node {
     &:not(:last-child) {
       border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 50%, transparent);
     }
   }
 
-  .label {
-    font-size: 0.8125rem;
-    color: var(--theme-text-muted);
-  }
-
-  .value {
-    font-size: 0.8125rem;
+  .tree-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.625rem 1rem;
+    background: none;
+    border: none;
     color: var(--theme-text);
-    &.mono { font-family: 'IBM Plex Mono', monospace; }
-    &.link {
-      color: var(--theme-primary);
-      text-decoration: none;
-      &:hover { text-decoration: underline; }
+    font-size: 0.8125rem;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+
+    &:hover {
+      background: color-mix(in srgb, var(--theme-text) 5%, transparent);
     }
   }
 
-  .instances {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+  .chevron {
+    flex-shrink: 0;
+    color: var(--theme-text-muted);
+    transition: transform 0.15s ease;
+
+    &.expanded {
+      transform: rotate(90deg);
+    }
   }
 
-  .info-box {
+  .template-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--rounded-sm);
+    background: var(--badge-purple-bg);
+    color: var(--badge-purple-text);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .tree-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 500;
+  }
+
+  .member-count {
+    font-size: 0.75rem;
+    color: var(--theme-text-muted);
+    margin-left: auto;
+  }
+
+  .tree-children {
+    border-top: 1px solid color-mix(in srgb, var(--theme-border) 50%, transparent);
+
+    .tree-node {
+      padding-left: 1rem;
+    }
+
+    .tree-leaf {
+      padding-left: 2.5rem;
+    }
+  }
+
+  .tree-leaf {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+
+    &:not(:last-child) {
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 30%, transparent);
+    }
+  }
+
+  .quality-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .leaf-name {
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--theme-text);
+  }
+
+  .leaf-value {
+    margin-left: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--theme-text-muted);
+    font-size: 0.75rem;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .leaf-type {
+    font-size: 0.6875rem;
+    color: var(--badge-muted-text);
+    padding: 0.1rem 0.35rem;
+    border-radius: var(--rounded-sm);
+    background: var(--badge-muted-bg);
+    flex-shrink: 0;
+  }
+
+  .error-box {
     padding: 1rem;
     border-radius: var(--rounded-lg);
     background: var(--theme-surface);
-    border: 1px solid var(--theme-border);
+    border: 1px solid var(--color-red-500, #ef4444);
     margin-bottom: 1.5rem;
-    p { margin: 0; font-size: 0.875rem; color: var(--theme-text-muted); }
-    &.error {
-      border-color: var(--color-red-500, #ef4444);
-      p { color: var(--color-red-500, #ef4444); }
+
+    p {
+      margin: 0;
+      font-size: 0.875rem;
+      color: var(--color-red-500, #ef4444);
+    }
+  }
+
+  .empty-state {
+    padding: 3rem 2rem;
+    text-align: center;
+
+    p {
+      color: var(--theme-text-muted);
+      font-size: 0.875rem;
     }
   }
 </style>

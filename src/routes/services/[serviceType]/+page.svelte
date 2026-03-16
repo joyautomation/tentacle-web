@@ -134,12 +134,12 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     &.running {
-      background: color-mix(in srgb, var(--color-green-500, #22c55e) 15%, transparent);
-      color: var(--color-green-500, #22c55e);
+      background: var(--badge-green-bg);
+      color: var(--badge-green-text);
     }
     &.stopped {
-      background: color-mix(in srgb, var(--theme-text-muted) 15%, transparent);
-      color: var(--theme-text-muted);
+      background: var(--badge-muted-bg);
+      color: var(--badge-muted-text);
     }
   }
 
