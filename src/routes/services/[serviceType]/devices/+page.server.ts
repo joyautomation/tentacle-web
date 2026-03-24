@@ -26,7 +26,74 @@ interface ActiveDevice {
   tagCount: number;
 }
 
-export const load: PageServerLoad = async () => {
+interface GatewayDevice {
+  deviceId: string;
+  protocol: string;
+  config: Record<string, unknown>;
+}
+
+interface GatewayVariable {
+  id: string;
+  description: string | null;
+  datatype: string;
+  deviceId: string;
+  tag: string;
+  bidirectional: boolean | null;
+}
+
+interface GatewayConfig {
+  gatewayId: string;
+  devices: GatewayDevice[];
+  variables: GatewayVariable[];
+  updatedAt: string;
+}
+
+export const load: PageServerLoad = async ({ params }) => {
+  const { serviceType } = params;
+
+  // Gateway: load gateway config
+  if (serviceType === 'gateway') {
+    try {
+      const result = await graphql<{ gatewayConfig: GatewayConfig }>(`
+        query GatewayConfig($gatewayId: String!) {
+          gatewayConfig(gatewayId: $gatewayId) {
+            gatewayId
+            devices { deviceId protocol config }
+            variables { id description datatype deviceId tag bidirectional }
+            updatedAt
+          }
+        }
+      `, { gatewayId: 'gateway' });
+
+      if (result.errors) {
+        return {
+          serviceType,
+          variables: [],
+          deviceInfo: {} as Record<string, ActiveDevice>,
+          gatewayConfig: null,
+          error: result.errors[0].message,
+        };
+      }
+
+      return {
+        serviceType,
+        variables: [],
+        deviceInfo: {} as Record<string, ActiveDevice>,
+        gatewayConfig: result.data?.gatewayConfig ?? null,
+        error: null,
+      };
+    } catch (e) {
+      return {
+        serviceType,
+        variables: [],
+        deviceInfo: {} as Record<string, ActiveDevice>,
+        gatewayConfig: null,
+        error: e instanceof Error ? e.message : 'Failed to fetch gateway config',
+      };
+    }
+  }
+
+  // EtherNet/IP: load variables and device info
   try {
     const result = await graphql<{
       variables: Variable[];
@@ -54,8 +121,10 @@ export const load: PageServerLoad = async () => {
 
     if (result.errors) {
       return {
+        serviceType,
         variables: [],
         deviceInfo: {} as Record<string, ActiveDevice>,
+        gatewayConfig: null,
         error: result.errors[0].message,
       };
     }
@@ -77,14 +146,18 @@ export const load: PageServerLoad = async () => {
     }
 
     return {
+      serviceType,
       variables: result.data?.variables ?? [],
       deviceInfo,
+      gatewayConfig: null,
       error: null,
     };
   } catch (e) {
     return {
+      serviceType,
       variables: [],
       deviceInfo: {} as Record<string, ActiveDevice>,
+      gatewayConfig: null,
       error: e instanceof Error ? e.message : 'Failed to fetch variables',
     };
   }

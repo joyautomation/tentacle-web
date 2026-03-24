@@ -2,6 +2,10 @@
   import type { PageData } from './$types';
   import { invalidateAll } from '$app/navigation';
   import { onMount } from 'svelte';
+  import Sunburst from '$lib/components/Sunburst.svelte';
+  import TidyTree from '$lib/components/TidyTree.svelte';
+  import DiagramSelector from '$lib/components/DiagramSelector.svelte';
+  import type { VizMode } from '$lib/components/DiagramSelector.svelte';
 
   let { data }: { data: PageData } = $props();
 
@@ -76,6 +80,8 @@
 
   const FADE_DURATION_SECONDS = 300;
 
+  let vizMode: VizMode = $state('tree');
+
   // Organize metrics into: template instances (grouped by templateRef) and scalar metrics
   const organized = $derived(() => {
     void updateVersion; // depend on debounced version
@@ -95,6 +101,53 @@
     }
 
     return { templateInstances, scalars };
+  });
+
+  // Build D3 hierarchy for sunburst visualization
+  type SunburstNode = { name: string; children?: SunburstNode[]; value?: number; displayValue?: string };
+  const sunburstData = $derived((): SunburstNode => {
+    const org = organized();
+    const children: SunburstNode[] = [];
+
+    if (templates.length > 0) {
+      const templateChildren = templates
+        .map(t => ({
+          name: t.name,
+          children: t.members.map((m: any) => ({ name: m.name, value: 1 })),
+        }))
+        .filter(t => t.children.length > 0);
+      if (templateChildren.length > 0) {
+        children.push({ name: 'Template Definitions', children: templateChildren });
+      }
+    }
+
+    const instEntries = Object.entries(org.templateInstances);
+    if (instEntries.length > 0) {
+      const instanceChildren = instEntries.map(([templateName, instances]) => ({
+        name: templateName,
+        children: instances.map(inst => {
+          const members: SunburstNode[] = [];
+          if (typeof inst.value === 'object' && inst.value !== null && 'metrics' in (inst.value as Record<string, unknown>)) {
+            for (const m of (inst.value as { metrics: { name: string; value?: unknown }[] }).metrics) {
+              members.push({ name: m.name, value: 1, displayValue: formatValue(m.value) });
+            }
+          }
+          return members.length > 0
+            ? { name: inst.name, children: members }
+            : { name: inst.name, value: 1 };
+        }),
+      }));
+      children.push({ name: 'Template Instances', children: instanceChildren });
+    }
+
+    if (org.scalars.length > 0) {
+      children.push({
+        name: 'Scalar Metrics',
+        children: org.scalars.map(m => ({ name: m.name, value: 1, displayValue: formatValue(m.value) })),
+      });
+    }
+
+    return { name: 'Metrics', children };
   });
 
   function toggleInstance(name: string) {
@@ -166,8 +219,11 @@
       <span class="device-badge">Device: {deviceId}</span>
     {/if}
     <span class="count-badge">{metricMap.size} metrics</span>
+    <DiagramSelector bind:mode={vizMode} />
   </div>
 
+  {#if vizMode === 'tree'}
+  <div class="tree-content">
   <!-- Template Definitions -->
   {#if templates.length > 0}
     <section class="section">
@@ -306,12 +362,40 @@
       <p>No metrics being published. Start a PLC project to see metrics here.</p>
     </div>
   {/if}
+  </div>
+  {:else if vizMode === 'sunburst'}
+    {#if sunburstData().children && sunburstData().children.length > 0}
+      <div class="diagram-content">
+        <Sunburst data={sunburstData()} />
+      </div>
+    {:else if !data.error}
+      <div class="empty-state">
+        <p>No metrics being published. Start a PLC project to see metrics here.</p>
+      </div>
+    {/if}
+  {:else if vizMode === 'tidy'}
+    {#if sunburstData().children && sunburstData().children.length > 0}
+      <TidyTree data={sunburstData()} />
+    {:else if !data.error}
+      <div class="empty-state">
+        <p>No metrics being published. Start a PLC project to see metrics here.</p>
+      </div>
+    {/if}
+  {/if}
 </div>
 
 <style lang="scss">
   .metrics-page {
     padding: 2rem;
+  }
+
+  .tree-content {
     max-width: 900px;
+  }
+
+  .diagram-content {
+    display: flex;
+    justify-content: center;
   }
 
   .metrics-header {
@@ -538,4 +622,5 @@
       font-size: 0.875rem;
     }
   }
+
 </style>

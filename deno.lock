@@ -5,7 +5,7 @@
     "npm:@fontsource/ibm-plex-mono@5": "5.2.7",
     "npm:@fontsource/righteous@5": "5.2.6",
     "npm:@fontsource/space-grotesk@5": "5.2.8",
-    "npm:@joyautomation/salt@^0.0.21": "0.0.21_@sveltejs+kit@2.49.4__@sveltejs+vite-plugin-svelte@5.1.1___svelte@5.46.1____acorn@8.15.0___vite@6.4.1____sass@1.97.2____picomatch@4.0.3___sass@1.97.2__svelte@5.46.1___acorn@8.15.0__typescript@5.6.3__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__acorn@8.15.0__sass@1.97.2_svelte@5.46.1__acorn@8.15.0_@sveltejs+vite-plugin-svelte@5.1.1__svelte@5.46.1___acorn@8.15.0__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__sass@1.97.2_typescript@5.6.3_vite@6.4.1__sass@1.97.2__picomatch@4.0.3_sass@1.97.2",
+    "npm:@joyautomation/salt@~0.1.5": "0.1.5_@sveltejs+kit@2.49.4__@sveltejs+vite-plugin-svelte@5.1.1___svelte@5.46.1____acorn@8.15.0___vite@6.4.1____sass@1.97.2____picomatch@4.0.3___sass@1.97.2__svelte@5.46.1___acorn@8.15.0__typescript@5.6.3__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__acorn@8.15.0__sass@1.97.2_svelte@5.46.1__acorn@8.15.0_@sveltejs+vite-plugin-svelte@5.1.1__svelte@5.46.1___acorn@8.15.0__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__sass@1.97.2_typescript@5.6.3_vite@6.4.1__sass@1.97.2__picomatch@4.0.3_sass@1.97.2",
     "npm:@sveltejs/adapter-node@^5.2.0": "5.5.2_@sveltejs+kit@2.49.4__@sveltejs+vite-plugin-svelte@5.1.1___svelte@5.46.1____acorn@8.15.0___vite@6.4.1____sass@1.97.2____picomatch@4.0.3___sass@1.97.2__svelte@5.46.1___acorn@8.15.0__typescript@5.6.3__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__acorn@8.15.0__sass@1.97.2_rollup@4.55.1_@sveltejs+vite-plugin-svelte@5.1.1__svelte@5.46.1___acorn@8.15.0__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__sass@1.97.2_svelte@5.46.1__acorn@8.15.0_typescript@5.6.3_vite@6.4.1__sass@1.97.2__picomatch@4.0.3_sass@1.97.2",
     "npm:@sveltejs/kit@^2.9.0": "2.49.4_@sveltejs+vite-plugin-svelte@5.1.1__svelte@5.46.1___acorn@8.15.0__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__sass@1.97.2_svelte@5.46.1__acorn@8.15.0_typescript@5.6.3_vite@6.4.1__sass@1.97.2__picomatch@4.0.3_acorn@8.15.0_sass@1.97.2",
     "npm:@sveltejs/vite-plugin-svelte@5": "5.1.1_svelte@5.46.1__acorn@8.15.0_vite@6.4.1__sass@1.97.2__picomatch@4.0.3_sass@1.97.2",
@@ -164,12 +164,12 @@
     "@fontsource/space-grotesk@5.2.8": {
       "integrity": "sha512-8rlIzpX+lo36y0g77OlwjeBj2DPo9XOwrzqKRLHYZcWcsj73SlkVI6UdXxDCZGLO7oQti1q9QPXzMBYbzSz60w=="
     },
-    "@joyautomation/salt@0.0.21_@sveltejs+kit@2.49.4__@sveltejs+vite-plugin-svelte@5.1.1___svelte@5.46.1____acorn@8.15.0___vite@6.4.1____sass@1.97.2____picomatch@4.0.3___sass@1.97.2__svelte@5.46.1___acorn@8.15.0__typescript@5.6.3__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__acorn@8.15.0__sass@1.97.2_svelte@5.46.1__acorn@8.15.0_@sveltejs+vite-plugin-svelte@5.1.1__svelte@5.46.1___acorn@8.15.0__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__sass@1.97.2_typescript@5.6.3_vite@6.4.1__sass@1.97.2__picomatch@4.0.3_sass@1.97.2": {
-      "integrity": "sha512-u4URjt38t0M4i4jbM8tVHswdGEU1Wekbuue0A05aFWAT8YZqVgQAoIcdL+Fm0CqMP26W1s94DIsHy5QFHAvIiw==",
+    "@joyautomation/salt@0.1.5_@sveltejs+kit@2.49.4__@sveltejs+vite-plugin-svelte@5.1.1___svelte@5.46.1____acorn@8.15.0___vite@6.4.1____sass@1.97.2____picomatch@4.0.3___sass@1.97.2__svelte@5.46.1___acorn@8.15.0__typescript@5.6.3__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__acorn@8.15.0__sass@1.97.2_svelte@5.46.1__acorn@8.15.0_@sveltejs+vite-plugin-svelte@5.1.1__svelte@5.46.1___acorn@8.15.0__vite@6.4.1___sass@1.97.2___picomatch@4.0.3__sass@1.97.2_typescript@5.6.3_vite@6.4.1__sass@1.97.2__picomatch@4.0.3_sass@1.97.2": {
+      "integrity": "sha512-nVlH9p78T7fwrgwkDxM9SNPfxpcRhupm81gQFfaIK6Pd5mlRkd9H4C3Y9iNo/hBkx+vR9ZXynP1OBgJTdoGrhw==",
       "dependencies": [
         "@sveltejs/adapter-node",
         "@sveltejs/kit",
-        "nanoid@5.1.6",
+        "nanoid@5.1.7",
         "sass",
         "svelte"
       ]
@@ -1120,8 +1120,8 @@
       "integrity": "sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==",
       "bin": true
     },
-    "nanoid@5.1.6": {
-      "integrity": "sha512-c7+7RQ+dMB5dPwwCp4ee1/iV/q2P6aK1mTZcfr1BTuVlyW9hJYiMPybJCcnBlQtuSmTIWNeazm/zqNoZSSElBg==",
+    "nanoid@5.1.7": {
+      "integrity": "sha512-ua3NDgISf6jdwezAheMOk4mbE1LXjm1DfMUDMuJf4AqxLFK3ccGpgWizwa5YV7Yz9EpXwEaWoRXSb/BnV0t5dQ==",
       "bin": true
     },
     "node-addon-api@7.1.1": {
@@ -1329,7 +1329,7 @@
         "npm:@fontsource/ibm-plex-mono@5",
         "npm:@fontsource/righteous@5",
         "npm:@fontsource/space-grotesk@5",
-        "npm:@joyautomation/salt@^0.0.21",
+        "npm:@joyautomation/salt@~0.1.5",
         "npm:@sveltejs/adapter-node@^5.2.0",
         "npm:@sveltejs/kit@^2.9.0",
         "npm:@sveltejs/vite-plugin-svelte@5",

@@ -45,9 +45,17 @@
     })
   );
 
-  function formatTime(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 3 });
+  function formatTime(ts: string | number): string {
+    // Handle both ISO strings and Unix millis
+    const d = typeof ts === 'number' || /^\d+$/.test(String(ts))
+      ? new Date(Number(ts))
+      : new Date(ts);
+    if (isNaN(d.getTime())) return String(ts);
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    const ms = String(d.getMilliseconds()).padStart(3, '0');
+    return `${h}:${m}:${s}.${ms}`;
   }
 
   function levelColor(level: string): string {
@@ -230,7 +238,8 @@
   }
 
   .log-time {
-    color: var(--theme-text-muted);
+    color: var(--theme-text);
+    opacity: 0.6;
     flex-shrink: 0;
   }
 

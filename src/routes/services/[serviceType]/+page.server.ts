@@ -8,6 +8,7 @@ interface Service {
   version: string | null;
   metadata: Record<string, unknown> | null;
   startedAt: string;
+  enabled: boolean;
 }
 
 export const load: PageServerLoad = async ({ params }) => {
@@ -26,6 +27,7 @@ export const load: PageServerLoad = async ({ params }) => {
           version
           metadata
           startedAt
+          enabled
         }
       }
     `);
@@ -43,11 +45,34 @@ export const load: PageServerLoad = async ({ params }) => {
       s => s.serviceType === serviceType
     );
 
+    // Pre-fetch store-forward status for MQTT service page
+    let storeForwardStatus = null;
+    if (serviceType === 'mqtt') {
+      try {
+        const sfResult = await graphql<{ storeForwardStatus: unknown }>(`
+          query {
+            storeForwardStatus {
+              primaryHostId primaryHostOnline
+              bufferedRecords bufferSizeBytes
+              bufferCapacityRecords bufferCapacityBytes
+              bufferUsedPercentRecords bufferUsedPercentBytes
+              draining drainProgress drainRecordsRemaining
+              drainTotalRecords drainEtaSeconds drainStartedAt
+              totalBuffered totalDrained totalEvicted publishRate
+              timeline { timestamp state }
+            }
+          }
+        `);
+        storeForwardStatus = sfResult.data?.storeForwardStatus ?? null;
+      } catch { /* ignore */ }
+    }
+
     return {
       serviceType,
       instances,
       graphqlConnected: true,
       error: null,
+      storeForwardStatus,
     };
   } catch (e) {
     return {

@@ -29,7 +29,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            query: `{ services { serviceType moduleId uptime version metadata } }`
+            query: `{ services { serviceType moduleId uptime version metadata enabled } }`
           })
         });
         if (res.ok) {

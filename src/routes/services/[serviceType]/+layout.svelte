@@ -10,24 +10,29 @@
     graphql: 'GraphQL',
     web: 'Web UI',
     ethernetip: 'EtherNet/IP',
+    'ethernetip-server': 'EtherNet/IP Server',
     mqtt: 'MQTT',
     plc: 'PLC',
+    gateway: 'Gateway',
     network: 'Network',
     nftables: 'NAT / Firewall',
     opcua: 'OPC UA',
+    snmp: 'SNMP',
   };
 
   const serviceName = $derived(serviceNames[serviceType] ?? serviceType);
 
   const currentTab = $derived(() => {
-    const path = $page.url.pathname;
+    const path = $page.url?.pathname ?? '';
     if (path.endsWith('/logs')) return 'logs';
     if (path.endsWith('/traffic')) return 'traffic';
     if (path.endsWith('/info')) return 'info';
     if (path.endsWith('/status')) return 'status';
     if (path.endsWith('/config')) return 'config';
+    if (path.endsWith('/settings')) return 'settings';
     if (path.endsWith('/metrics')) return 'metrics';
     if (path.endsWith('/devices')) return 'devices';
+    if (path.endsWith('/oids')) return 'oids';
     return 'default';
   });
 </script>
@@ -95,6 +100,9 @@
       <a href="/services/{serviceType}/metrics" class="tab" class:active={currentTab() === 'metrics'}>
         Metrics
       </a>
+      <a href="/services/{serviceType}/settings" class="tab" class:active={currentTab() === 'settings'}>
+        Settings
+      </a>
       <a href="/services/{serviceType}/logs" class="tab" class:active={currentTab() === 'logs'}>
         Logs
       </a>
@@ -104,6 +112,29 @@
       </a>
       <a href="/services/{serviceType}/devices" class="tab" class:active={currentTab() === 'devices'}>
         Devices
+      </a>
+      <a href="/services/{serviceType}/logs" class="tab" class:active={currentTab() === 'logs'}>
+        Logs
+      </a>
+    {:else if serviceType === 'gateway'}
+      <a href="/services/{serviceType}" class="tab" class:active={currentTab() === 'default'}>
+        Overview
+      </a>
+      <a href="/services/{serviceType}/devices" class="tab" class:active={currentTab() === 'devices'}>
+        Devices
+      </a>
+      <a href="/services/{serviceType}/info" class="tab" class:active={currentTab() === 'info'}>
+        Variables
+      </a>
+      <a href="/services/{serviceType}/logs" class="tab" class:active={currentTab() === 'logs'}>
+        Logs
+      </a>
+    {:else if serviceType === 'snmp'}
+      <a href="/services/{serviceType}" class="tab" class:active={currentTab() === 'default'}>
+        Overview
+      </a>
+      <a href="/services/{serviceType}/oids" class="tab" class:active={currentTab() === 'oids'}>
+        OIDs
       </a>
       <a href="/services/{serviceType}/logs" class="tab" class:active={currentTab() === 'logs'}>
         Logs

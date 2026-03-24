@@ -12,7 +12,7 @@
     "@fontsource/ibm-plex-mono": "^5.0.0",
     "@fontsource/space-grotesk": "^5.0.0",
     "@fontsource/righteous": "^5.0.0",
-    "@joyautomation/salt": "^0.0.21"
+    "@joyautomation/salt": "^0.1.5"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",

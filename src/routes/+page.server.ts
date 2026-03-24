@@ -8,6 +8,7 @@ interface Service {
   uptime: number;
   version: string | null;
   metadata: Record<string, unknown> | null;
+  enabled: boolean;
 }
 
 export const load: PageServerLoad = async () => {
@@ -21,6 +22,7 @@ export const load: PageServerLoad = async () => {
           uptime
           version
           metadata
+          enabled
         }
       }
     `);

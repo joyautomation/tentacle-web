@@ -1,5 +1,9 @@
 <script lang="ts">
   import type { PageData } from './$types';
+  import { invalidateAll } from '$app/navigation';
+  import { graphql } from '$lib/graphql/client';
+  import { state as saltState } from '@joyautomation/salt';
+  import StoreForwardStatus from '$lib/components/StoreForwardStatus.svelte';
 
   let { data }: { data: PageData } = $props();
 
@@ -8,6 +12,7 @@
     graphql: 'GraphQL',
     web: 'Web UI',
     ethernetip: 'EtherNet/IP',
+    'ethernetip-server': 'EtherNet/IP Server',
     mqtt: 'MQTT',
     plc: 'PLC',
     network: 'Network',
@@ -18,6 +23,7 @@
     graphql: 'GraphQL API gateway for the tentacle platform',
     web: 'Web-based management interface',
     ethernetip: 'EtherNet/IP scanner for Allen-Bradley/Rockwell PLCs',
+    'ethernetip-server': 'EtherNet/IP CIP server exposing PLC variables to external clients',
     mqtt: 'MQTT Sparkplug B bridge for publishing PLC data',
     plc: 'PLC runtime project',
     network: 'Network interface monitoring and configuration management',
@@ -40,10 +46,47 @@
     return new Date(iso).toLocaleString();
   }
 
-  const isRunning = $derived((data.instances?.length ?? 0) > 0);
+  // Infrastructure services (nats, web) are always running if we can reach graphql
+  const infraServices = new Set(['nats', 'web']);
+  const isInfra = $derived(infraServices.has(data.serviceType));
+  const isRunning = $derived(isInfra ? data.graphqlConnected : (data.instances?.length ?? 0) > 0);
   const description = $derived(
     serviceDescriptions[data.serviceType] ?? 'Tentacle service'
   );
+
+  let togglingModuleId: string | null = $state(null);
+
+  async function toggleEnabled(moduleId: string, currentEnabled: boolean) {
+    togglingModuleId = moduleId;
+    try {
+      const result = await graphql<{ setServiceEnabled: { moduleId: string; enabled: boolean } }>(`
+        mutation SetServiceEnabled($moduleId: String!, $enabled: Boolean!) {
+          setServiceEnabled(moduleId: $moduleId, enabled: $enabled) {
+            moduleId
+            enabled
+          }
+        }
+      `, { moduleId, enabled: !currentEnabled });
+
+      if (result.errors) {
+        saltState.addNotification({ message: result.errors[0].message, type: 'error' });
+      } else {
+        const newState = result.data?.setServiceEnabled.enabled;
+        saltState.addNotification({
+          message: `${moduleId} ${newState ? 'enabled' : 'disabled'}`,
+          type: 'success',
+        });
+        await invalidateAll();
+      }
+    } catch (err) {
+      saltState.addNotification({
+        message: err instanceof Error ? err.message : 'Failed to toggle service',
+        type: 'error',
+      });
+    } finally {
+      togglingModuleId = null;
+    }
+  }
 </script>
 
 <div class="service-overview">
@@ -63,48 +106,61 @@
     </div>
   {/if}
 
-  {#if (data.instances?.length ?? 0) > 0}
-    <section class="section">
-      <h2>Instances</h2>
-      <div class="instances">
-        {#each data.instances as instance}
-          <div class="card">
-            <div class="card-header">
-              <span class="instance-id">{instance.moduleId}</span>
-              <span class="status-dot running"></span>
-            </div>
-            <div class="card-body">
-              <div class="detail-row">
-                <span class="label">Uptime</span>
-                <span class="value">{formatUptime(instance.uptime)}</span>
-              </div>
-              <div class="detail-row">
-                <span class="label">Started</span>
-                <span class="value">{formatDate(instance.startedAt)}</span>
-              </div>
-              {#if instance.version}
-                <div class="detail-row">
-                  <span class="label">Version</span>
-                  <span class="value">{instance.version}</span>
-                </div>
-              {/if}
-              {#if instance.metadata}
-                {#each Object.entries(instance.metadata) as [key, value]}
-                  <div class="detail-row">
-                    <span class="label">{key}</span>
-                    <span class="value">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
-                  </div>
-                {/each}
-              {/if}
-            </div>
-          </div>
-        {/each}
+  {#if isInfra}
+    <!-- Infrastructure services don't need instances/enable-disable -->
+  {:else if (data.instances?.length ?? 0) > 0}
+    {#each data.instances as instance}
+      <div class="enable-row">
+        <span class="enable-label">
+          Enabled
+          {#if !instance.enabled}
+            <span class="disabled-badge">Disabled</span>
+          {/if}
+        </span>
+        <label class="toggle" title={instance.enabled ? 'Disable service' : 'Enable service'}>
+          <input
+            type="checkbox"
+            checked={instance.enabled}
+            disabled={togglingModuleId === instance.moduleId}
+            onchange={() => toggleEnabled(instance.moduleId, instance.enabled)}
+          />
+          <span class="toggle-slider"></span>
+        </label>
       </div>
-    </section>
-  {:else if !data.error}
+
+      <div class="details" class:disabled={!instance.enabled}>
+        <div class="detail-row">
+          <span class="label">Uptime</span>
+          <span class="value">{formatUptime(instance.uptime)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="label">Started</span>
+          <span class="value">{formatDate(instance.startedAt)}</span>
+        </div>
+        {#if instance.version}
+          <div class="detail-row">
+            <span class="label">Version</span>
+            <span class="value">{instance.version}</span>
+          </div>
+        {/if}
+        {#if instance.metadata}
+          {#each Object.entries(instance.metadata).filter(([key]) => key !== 'enabled') as [key, value]}
+            <div class="detail-row">
+              <span class="label">{key}</span>
+              <span class="value">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/each}
+  {:else if !data.error && !isInfra}
     <div class="info-box">
       <p>No active instances of this service found.</p>
     </div>
+  {/if}
+
+  {#if data.serviceType === 'mqtt'}
+    <StoreForwardStatus initialStatus={data.storeForwardStatus} />
   {/if}
 </div>
 
@@ -143,59 +199,94 @@
     }
   }
 
-  .section {
-    margin-bottom: 1.5rem;
-    h2 {
-      font-size: 0.8125rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--theme-text-muted);
-      margin: 0 0 0.75rem;
-    }
-  }
-
-  .card {
-    background: var(--theme-surface);
-    border: 1px solid var(--theme-border);
-    border-radius: var(--rounded-lg);
-    overflow: hidden;
-  }
-
-  .card-header {
+  .enable-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--theme-border);
-    background: color-mix(in srgb, var(--theme-surface) 50%, var(--theme-background));
+    margin-bottom: 1.5rem;
   }
 
-  .instance-id {
-    font-family: 'IBM Plex Mono', monospace;
+  .enable-label {
     font-size: 0.8125rem;
+    font-weight: 500;
     color: var(--theme-text);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    &.running {
-      background: var(--color-green-500, #22c55e);
-      box-shadow: 0 0 6px var(--color-green-500, #22c55e);
+  .disabled-badge {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.125rem 0.375rem;
+    border-radius: var(--rounded-full);
+    background: var(--badge-muted-bg);
+    color: var(--badge-muted-text);
+  }
+
+  .details {
+    &.disabled {
+      opacity: 0.5;
     }
   }
 
-  .card-body {
-    padding: 0.75rem 1rem;
+  .toggle {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+
+    input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+  }
+
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--theme-border);
+    border-radius: 20px;
+    transition: background 0.2s;
+
+    &::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: var(--theme-text);
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+  }
+
+  .toggle input:checked + .toggle-slider {
+    background: var(--color-green-500, #22c55e);
+  }
+
+  .toggle input:checked + .toggle-slider::before {
+    transform: translateX(16px);
+  }
+
+  .toggle input:disabled + .toggle-slider {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .detail-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 1rem;
     padding: 0.375rem 0;
+    min-width: 0;
     &:not(:last-child) {
       border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 50%, transparent);
     }
@@ -204,17 +295,16 @@
   .label {
     font-size: 0.8125rem;
     color: var(--theme-text-muted);
+    flex-shrink: 0;
   }
 
   .value {
     font-size: 0.8125rem;
     color: var(--theme-text);
-  }
-
-  .instances {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   .info-box {

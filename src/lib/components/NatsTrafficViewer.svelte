@@ -16,24 +16,56 @@
   let { initialTraffic }: Props = $props();
 
   const MAX_LINES = 500;
+  const DEFAULT_FILTER = '-*.data.*'; // exclude high-volume data messages by default
 
   let entries = $state<TrafficEntry[]>([]);
-  let filter = $state('');
-  let appliedFilter = $state('');
+  let filter = $state(DEFAULT_FILTER);
+  let appliedFilter = $state(DEFAULT_FILTER);
   let paused = $state(false);
   let selectedIndex = $state<number | null>(null);
   let unsubscribe: (() => void) | null = null;
 
-  // Glob-style filter: * and > both mean "any characters", everything else is literal.
-  // Plain text (no wildcards) does a substring match.
-  function matchesFilter(subject: string, pattern: string): boolean {
-    if (!pattern.includes('*') && !pattern.includes('>')) {
-      return subject.toLowerCase().includes(pattern.toLowerCase());
+  // Batch buffer for throttling DOM updates
+  let pendingEntries: TrafficEntry[] = [];
+  let batchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushBatch() {
+    if (pendingEntries.length === 0) return;
+    entries = [...pendingEntries.reverse(), ...entries].slice(0, MAX_LINES);
+    pendingEntries = [];
+    batchTimer = null;
+  }
+
+  function addEntry(entry: TrafficEntry) {
+    if (paused) return;
+    pendingEntries.push(entry);
+    if (!batchTimer) {
+      batchTimer = setTimeout(flushBatch, 500);
     }
-    // Convert glob to regex: escape regex chars, then replace * and > with .*
-    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-    const regexStr = escaped.replace(/[*>]/g, '.*');
-    return new RegExp(regexStr, 'i').test(subject);
+  }
+
+  // Glob-style filter: * and > both mean "any characters", everything else is literal.
+  // Prefix with - to negate (exclude matches). Multiple patterns separated by spaces.
+  function matchesFilter(subject: string, pattern: string): boolean {
+    const parts = pattern.trim().split(/\s+/);
+    for (const part of parts) {
+      const negate = part.startsWith('-');
+      const p = negate ? part.slice(1) : part;
+      if (!p) continue;
+
+      let matches: boolean;
+      if (!p.includes('*') && !p.includes('>')) {
+        matches = subject.toLowerCase().includes(p.toLowerCase());
+      } else {
+        const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+        const regexStr = escaped.replace(/[*>]/g, '.*');
+        matches = new RegExp(regexStr, 'i').test(subject);
+      }
+
+      if (negate && matches) return false;
+      if (!negate && !matches) return false;
+    }
+    return true;
   }
 
   let filteredEntries = $derived(
@@ -49,9 +81,16 @@
     }
   });
 
-  function formatTime(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 3 });
+  function formatTime(ts: string | number): string {
+    const d = typeof ts === 'number' || /^\d+$/.test(String(ts))
+      ? new Date(Number(ts))
+      : new Date(ts);
+    if (isNaN(d.getTime())) return String(ts);
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    const ms = String(d.getMilliseconds()).padStart(3, '0');
+    return `${h}:${m}:${s}.${ms}`;
   }
 
   function formatSize(bytes: number): string {
@@ -141,8 +180,7 @@
       }`,
       variables,
       (data) => {
-        if (paused) return;
-        entries = [data.natsTraffic, ...entries].slice(0, MAX_LINES);
+        addEntry(data.natsTraffic);
       }
     );
   }
@@ -158,6 +196,7 @@
 
   onDestroy(() => {
     unsubscribe?.();
+    if (batchTimer) clearTimeout(batchTimer);
   });
 </script>
 

@@ -1,12 +1,22 @@
 <script lang="ts">
   import type { PageData } from './$types';
-  import { subscribe } from '$lib/graphql/client';
+  import { subscribe, graphql } from '$lib/graphql/client';
   import { onMount } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
+  import { state as saltState } from '@joyautomation/salt';
+  import Sunburst from '$lib/components/Sunburst.svelte';
+  import TidyTree from '$lib/components/TidyTree.svelte';
+  import DiagramSelector from '$lib/components/DiagramSelector.svelte';
+  import type { VizMode } from '$lib/components/DiagramSelector.svelte';
 
   let { data }: { data: PageData } = $props();
 
+  const isGateway = $derived(data.serviceType === 'gateway');
+
   let expandedTypes: Record<string, boolean> = $state({});
   let expandedInstances: Record<string, boolean> = $state({});
+
+  let vizMode: VizMode = $state('tree');
 
   type Variable = {
     variableId: string;
@@ -153,6 +163,35 @@
     return { structTypes, scalars: scalars.sort((a, b) => a.variableId.localeCompare(b.variableId)) };
   });
 
+  // Build D3 hierarchy for sunburst visualization
+  type SunburstNode = { name: string; children?: SunburstNode[]; value?: number; displayValue?: string };
+  const sunburstData = $derived((): SunburstNode => {
+    const org = organized();
+    const children: SunburstNode[] = [];
+
+    if (org.structTypes.length > 0) {
+      children.push({
+        name: 'UDT Variables',
+        children: org.structTypes.map(st => ({
+          name: st.typeName,
+          children: st.instances.map(inst => ({
+            name: inst.name,
+            children: inst.members.map(m => ({ name: m.name, value: 1, displayValue: formatValue(m.variable.value) })),
+          })),
+        })),
+      });
+    }
+
+    if (org.scalars.length > 0) {
+      children.push({
+        name: 'Scalar Variables',
+        children: org.scalars.map(v => ({ name: v.variableId, value: 1, displayValue: formatValue(v.value) })),
+      });
+    }
+
+    return { name: 'Variables', children };
+  });
+
   function toggleType(name: string) {
     expandedTypes[name] = !expandedTypes[name];
   }
@@ -176,8 +215,170 @@
     if (quality === 'bad') return 'var(--color-red-500, #ef4444)';
     return 'var(--theme-text-muted)';
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Gateway variable management
+  // ═══════════════════════════════════════════════════════════════════
+
+  let showAddVar = $state(false);
+  let gwSaving = $state(false);
+  let newVar = $state({
+    id: '',
+    deviceId: '',
+    tag: '',
+    datatype: 'number' as string,
+    description: '',
+    bidirectional: false,
+  });
+
+  function resetNewVar() {
+    newVar = { id: '', deviceId: '', tag: '', datatype: 'number', description: '', bidirectional: false };
+  }
+
+  async function addVariable() {
+    if (!newVar.id || !newVar.deviceId || !newVar.tag) return;
+    gwSaving = true;
+    try {
+      const result = await graphql(`
+        mutation SetGatewayVariable($gatewayId: String!, $variable: GatewayVariableInput!) {
+          setGatewayVariable(gatewayId: $gatewayId, variable: $variable) { gatewayId }
+        }
+      `, {
+        gatewayId: 'gateway',
+        variable: {
+          id: newVar.id,
+          deviceId: newVar.deviceId,
+          tag: newVar.tag,
+          datatype: newVar.datatype,
+          description: newVar.description || undefined,
+          bidirectional: newVar.bidirectional || undefined,
+        },
+      });
+
+      if (result.errors) {
+        saltState.addNotification({ message: result.errors[0].message, type: 'error' });
+      } else {
+        saltState.addNotification({ message: `Variable "${newVar.id}" added`, type: 'success' });
+        resetNewVar();
+        showAddVar = false;
+        await invalidateAll();
+      }
+    } catch (err) {
+      saltState.addNotification({ message: err instanceof Error ? err.message : 'Failed', type: 'error' });
+    } finally {
+      gwSaving = false;
+    }
+  }
+
+  async function removeVariable(variableId: string) {
+    gwSaving = true;
+    try {
+      const result = await graphql(`
+        mutation DeleteGatewayVariable($gatewayId: String!, $variableId: String!) {
+          deleteGatewayVariable(gatewayId: $gatewayId, variableId: $variableId) { gatewayId }
+        }
+      `, { gatewayId: 'gateway', variableId });
+
+      if (result.errors) {
+        saltState.addNotification({ message: result.errors[0].message, type: 'error' });
+      } else {
+        saltState.addNotification({ message: `Variable "${variableId}" removed`, type: 'success' });
+        await invalidateAll();
+      }
+    } catch (err) {
+      saltState.addNotification({ message: err instanceof Error ? err.message : 'Failed', type: 'error' });
+    } finally {
+      gwSaving = false;
+    }
+  }
 </script>
 
+{#if isGateway}
+<div class="variables-page">
+  {#if data.error}
+    <div class="error-box"><p>{data.error}</p></div>
+  {/if}
+
+  <div class="variables-header">
+    <h1>Variables</h1>
+    <span class="count-badge">{data.gatewayConfig?.variables?.length ?? 0} variables</span>
+    <button class="gw-add-btn" onclick={() => { showAddVar = !showAddVar; }} disabled={gwSaving}>
+      {showAddVar ? 'Cancel' : '+ Add Variable'}
+    </button>
+  </div>
+
+  {#if showAddVar}
+    <div class="gw-add-form">
+      <div class="gw-form-row">
+        <label for="gw-var-id">Variable ID</label>
+        <input id="gw-var-id" type="text" bind:value={newVar.id} placeholder="e.g. temperature" />
+      </div>
+      <div class="gw-form-row">
+        <label for="gw-var-device">Device</label>
+        <select id="gw-var-device" bind:value={newVar.deviceId}>
+          <option value="">Select device...</option>
+          {#each data.gatewayConfig?.devices ?? [] as device}
+            <option value={device.deviceId}>{device.deviceId} ({device.protocol})</option>
+          {/each}
+        </select>
+      </div>
+      <div class="gw-form-row">
+        <label for="gw-var-tag">Tag / Node / OID</label>
+        <input id="gw-var-tag" type="text" bind:value={newVar.tag} placeholder="Tag name, OPC UA nodeId, or SNMP OID" />
+      </div>
+      <div class="gw-form-row">
+        <label for="gw-var-datatype">Datatype</label>
+        <select id="gw-var-datatype" bind:value={newVar.datatype}>
+          <option value="number">Number</option>
+          <option value="boolean">Boolean</option>
+          <option value="string">String</option>
+        </select>
+      </div>
+      <div class="gw-form-row">
+        <label for="gw-var-desc">Description</label>
+        <input id="gw-var-desc" type="text" bind:value={newVar.description} placeholder="Optional" />
+      </div>
+      <div class="gw-form-row">
+        <label for="gw-var-bidir">Writable</label>
+        <label class="gw-toggle">
+          <input type="checkbox" bind:checked={newVar.bidirectional} />
+          <span class="gw-toggle-slider"></span>
+        </label>
+      </div>
+      <div class="gw-form-actions">
+        <button class="gw-save-btn" onclick={addVariable} disabled={gwSaving || !newVar.id || !newVar.deviceId || !newVar.tag}>
+          {gwSaving ? 'Saving...' : 'Add Variable'}
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if data.gatewayConfig?.variables && data.gatewayConfig.variables.length > 0}
+    <div class="tree">
+      {#each data.gatewayConfig.variables as variable}
+        <div class="tree-leaf gw-var-row">
+          <span class="leaf-type">{variable.datatype}</span>
+          <span class="leaf-name">{variable.id}</span>
+          <span class="gw-var-device">{variable.deviceId}</span>
+          <span class="gw-var-tag">{variable.tag}</span>
+          {#if variable.bidirectional}
+            <span class="gw-bidir-badge">RW</span>
+          {/if}
+          <button class="gw-delete-btn" onclick={() => removeVariable(variable.id)} disabled={gwSaving} title="Remove variable">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      {/each}
+    </div>
+  {:else if !data.error && !showAddVar}
+    <div class="empty-state">
+      <p>No variables configured. Add devices first, then add variables to map tags.</p>
+    </div>
+  {/if}
+</div>
+{:else}
 <div class="variables-page">
   {#if data.error}
     <div class="error-box">
@@ -188,8 +389,11 @@
   <div class="variables-header">
     <h1>Variables</h1>
     <span class="count-badge">{variableMap.size} variables</span>
+    <DiagramSelector bind:mode={vizMode} />
   </div>
 
+  {#if vizMode === 'tree'}
+  <div class="tree-content">
   <!-- UDT Variables grouped by type -->
   {#if organized().structTypes.length > 0}
     <section class="section">
@@ -260,12 +464,41 @@
       <p>No variables being polled. Start a PLC project to see variables here.</p>
     </div>
   {/if}
+  </div>
+  {:else if vizMode === 'sunburst'}
+    {#if sunburstData().children && sunburstData().children.length > 0}
+      <div class="diagram-content">
+        <Sunburst data={sunburstData()} />
+      </div>
+    {:else if !data.error}
+      <div class="empty-state">
+        <p>No variables being polled. Start a PLC project to see variables here.</p>
+      </div>
+    {/if}
+  {:else if vizMode === 'tidy'}
+    {#if sunburstData().children && sunburstData().children.length > 0}
+      <TidyTree data={sunburstData()} />
+    {:else if !data.error}
+      <div class="empty-state">
+        <p>No variables being polled. Start a PLC project to see variables here.</p>
+      </div>
+    {/if}
+  {/if}
 </div>
+{/if}
 
 <style lang="scss">
   .variables-page {
     padding: 2rem;
+  }
+
+  .tree-content {
     max-width: 900px;
+  }
+
+  .diagram-content {
+    display: flex;
+    justify-content: center;
   }
 
   .variables-header {
@@ -449,5 +682,166 @@
       color: var(--theme-text-muted);
       font-size: 0.875rem;
     }
+  }
+
+  // Gateway-specific styles
+  .gw-add-btn {
+    margin-left: auto;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border: 1px solid var(--theme-border);
+    border-radius: var(--rounded-md);
+    background: var(--theme-surface);
+    color: var(--theme-text);
+    cursor: pointer;
+
+    &:hover:not(:disabled) { background: color-mix(in srgb, var(--theme-text) 5%, var(--theme-surface)); }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+
+  .gw-add-form {
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-border);
+    border-radius: var(--rounded-lg);
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .gw-form-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+
+    label {
+      font-size: 0.8125rem;
+      color: var(--theme-text-muted);
+      min-width: 110px;
+      flex-shrink: 0;
+    }
+
+    input, select {
+      flex: 1;
+      padding: 0.375rem 0.5rem;
+      font-size: 0.8125rem;
+      font-family: 'IBM Plex Mono', monospace;
+      border: 1px solid var(--theme-border);
+      border-radius: var(--rounded-md);
+      background: var(--theme-bg, #000);
+      color: var(--theme-text);
+    }
+  }
+
+  .gw-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+  }
+
+  .gw-save-btn {
+    padding: 0.375rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border: none;
+    border-radius: var(--rounded-md);
+    background: var(--theme-primary);
+    color: white;
+    cursor: pointer;
+    &:hover:not(:disabled) { opacity: 0.9; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+
+  .gw-toggle {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+
+    input { opacity: 0; width: 0; height: 0; }
+  }
+
+  .gw-toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--theme-border);
+    border-radius: 20px;
+    transition: background 0.2s;
+
+    &::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: var(--theme-text);
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+  }
+
+  .gw-toggle input:checked + .gw-toggle-slider {
+    background: var(--color-green-500, #22c55e);
+  }
+
+  .gw-toggle input:checked + .gw-toggle-slider::before {
+    transform: translateX(16px);
+  }
+
+  .gw-var-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+  }
+
+  .gw-var-device {
+    font-size: 0.6875rem;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--badge-muted-text);
+    padding: 0.1rem 0.35rem;
+    border-radius: var(--rounded-sm);
+    background: var(--badge-muted-bg);
+  }
+
+  .gw-var-tag {
+    font-size: 0.75rem;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--theme-text-muted);
+    margin-left: auto;
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .gw-bidir-badge {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    padding: 0.1rem 0.3rem;
+    border-radius: var(--rounded-sm);
+    background: var(--badge-amber-bg);
+    color: var(--badge-amber-text);
+  }
+
+  .gw-delete-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: var(--rounded-sm);
+    background: none;
+    color: var(--theme-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+
+    &:hover:not(:disabled) {
+      color: var(--color-red-500, #ef4444);
+      background: color-mix(in srgb, var(--color-red-500, #ef4444) 10%, transparent);
+    }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
   }
 </style>

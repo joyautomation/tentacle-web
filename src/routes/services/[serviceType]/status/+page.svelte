@@ -571,17 +571,24 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 1rem;
     padding: 0.25rem 0;
+    min-width: 0;
   }
 
   .label {
     font-size: 0.8125rem;
     color: var(--theme-text-muted);
+    flex-shrink: 0;
   }
 
   .value {
     font-size: 0.8125rem;
     color: var(--theme-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   .mono {

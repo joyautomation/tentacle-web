@@ -7,7 +7,7 @@ export type GraphQLResponse<T> = {
   errors?: Array<{ message: string; path?: string[] }>;
 };
 
-const graphqlEndpoint = env.GRAPHQL_URL || 'http://localhost:4000/graphql';
+const graphqlEndpoint = env.GRAPHQL_URL || 'http://127.0.0.1:4000/graphql';
 
 /**
  * Check if an error is a network connectivity error
@@ -31,6 +31,7 @@ export async function graphql<T = unknown>(
   variables?: Record<string, unknown>
 ): Promise<GraphQLResponse<T>> {
   try {
+    console.log(`[graphql] Fetching ${graphqlEndpoint} with query: ${query.slice(0, 80)}...`);
     const response = await fetch(graphqlEndpoint, {
       method: 'POST',
       headers: {
@@ -43,13 +44,17 @@ export async function graphql<T = unknown>(
     });
 
     if (!response.ok) {
+      console.log(`[graphql] Response not OK: ${response.status}`);
       return {
         errors: [{ message: `GraphQL request failed: ${response.status} ${response.statusText}` }]
       };
     }
 
-    return response.json();
+    const result = await response.json();
+    console.log(`[graphql] Response:`, JSON.stringify(result).slice(0, 200));
+    return result;
   } catch (error) {
+    console.log(`[graphql] Error:`, error);
     if (isNetworkError(error)) {
       // Extract host from endpoint for clearer error message
       const url = new URL(graphqlEndpoint);
