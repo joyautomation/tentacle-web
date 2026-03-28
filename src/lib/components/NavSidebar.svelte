@@ -11,7 +11,8 @@
     ComputerDesktop,
     ShieldCheck,
     CircleStack,
-    Squares2x2
+    Squares2x2,
+    PlusCircle
   } from '@joyautomation/salt/icons';
 
   interface Service {
@@ -20,16 +21,43 @@
     enabled: boolean;
   }
 
+  interface ModuleRegistryInfo {
+    moduleId: string;
+    repo: string;
+    description: string;
+    category: string;
+    runtime: string;
+  }
+
+  interface DesiredService {
+    moduleId: string;
+    version: string;
+    running: boolean;
+  }
+
   interface Props {
     services: Service[];
+    availableModules: ModuleRegistryInfo[];
+    desiredServices: DesiredService[];
     open: boolean;
   }
 
-  let { services, open = $bindable(false) }: Props = $props();
+  let { services, availableModules = [], desiredServices = [], open = $bindable(false) }: Props = $props();
 
   const uniqueServices = $derived(
     [...new Map(services.map((s) => [s.serviceType, s])).values()]
   );
+
+  // Modules that are in the registry but not currently running (no heartbeat)
+  // and not already in desired_services (not pending install)
+  const uninstalledModules = $derived(() => {
+    const runningModuleIds = new Set(services.map((s) => s.moduleId));
+    const desiredModuleIds = new Set(desiredServices.map((d) => d.moduleId));
+    // Exclude core modules (graphql, web, orchestrator) — they're always present
+    return availableModules.filter(
+      (m) => m.category === 'optional' && !runningModuleIds.has(m.moduleId) && !desiredModuleIds.has(m.moduleId)
+    );
+  });
 
   const serviceIcons: Record<string, typeof Squares2x2> = {
     plc: CpuChip,
@@ -41,6 +69,32 @@
     nftables: ShieldCheck,
     snmp: ComputerDesktop,
     opcua: CircleStack
+  };
+
+  /** Map moduleId to a display label */
+  const moduleLabels: Record<string, string> = {
+    'tentacle-ethernetip': 'EtherNet/IP',
+    'tentacle-opcua': 'OPC UA',
+    'tentacle-snmp': 'SNMP',
+    'tentacle-mqtt': 'MQTT',
+    'tentacle-history': 'History',
+    'tentacle-modbus': 'Modbus',
+    'tentacle-modbus-server': 'Modbus Server',
+    'tentacle-network': 'Network',
+    'tentacle-nftables': 'NFTables',
+  };
+
+  /** Map moduleId to an icon */
+  const moduleIcons: Record<string, typeof Squares2x2> = {
+    'tentacle-ethernetip': CpuChip,
+    'tentacle-opcua': CircleStack,
+    'tentacle-snmp': ComputerDesktop,
+    'tentacle-mqtt': Signal,
+    'tentacle-history': ServerStack,
+    'tentacle-modbus': CpuChip,
+    'tentacle-modbus-server': CpuChip,
+    'tentacle-network': GlobeAlt,
+    'tentacle-nftables': ShieldCheck,
   };
 
   const serviceLabels: Record<string, string> = {
@@ -61,6 +115,14 @@
 
   function getLabel(serviceType: string) {
     return serviceLabels[serviceType.toLowerCase()] ?? serviceType;
+  }
+
+  function getModuleIcon(moduleId: string) {
+    return moduleIcons[moduleId] ?? Squares2x2;
+  }
+
+  function getModuleLabel(moduleId: string) {
+    return moduleLabels[moduleId] ?? moduleId.replace('tentacle-', '');
   }
 
   function close() {
@@ -108,6 +170,27 @@
             {#if !service.enabled}
               <span class="disabled-badge">off</span>
             {/if}
+          </a>
+        </li>
+      {/each}
+    {/if}
+
+    {#if uninstalledModules().length > 0}
+      <li class="sidebar-section-label">Available Modules</li>
+      {#each uninstalledModules() as mod}
+        {@const Icon = getModuleIcon(mod.moduleId)}
+        <li>
+          <a
+            href="/modules/{mod.moduleId}"
+            class="sidebar-item"
+            class:active={$page.url.pathname.startsWith('/modules/' + mod.moduleId)}
+            onclick={close}
+          >
+            <Icon size="1.25rem" />
+            <span>{getModuleLabel(mod.moduleId)}</span>
+            <span class="available-badge">
+              <PlusCircle size="0.875rem" />
+            </span>
           </a>
         </li>
       {/each}
@@ -241,5 +324,19 @@
     border: 1px solid var(--badge-muted-border);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  .available-badge {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    color: var(--theme-text-muted);
+    opacity: 0.5;
+    transition: opacity 0.15s, color 0.15s;
+  }
+
+  .sidebar-item:hover .available-badge {
+    opacity: 1;
+    color: var(--theme-primary);
   }
 </style>

@@ -32,7 +32,12 @@
   });
 </script>
 
-<NavSidebar services={data.services ?? []} bind:open={sidebarOpen} />
+<NavSidebar
+  services={data.services ?? []}
+  availableModules={data.availableModules ?? []}
+  desiredServices={data.desiredServices ?? []}
+  bind:open={sidebarOpen}
+/>
 
 <header class="app-header">
   <button class="menu-toggle" onclick={() => (sidebarOpen = !sidebarOpen)} aria-label="Open navigation">
