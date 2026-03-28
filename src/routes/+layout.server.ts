@@ -1,14 +1,32 @@
+import type { LayoutServerLoad } from './$types';
 import { graphql } from '$lib/server/graphql';
 
-export const load = async ({ cookies }) => {
+interface Service {
+	serviceType: string;
+	moduleId: string;
+	enabled: boolean;
+}
+
+export const load: LayoutServerLoad = async ({ cookies }) => {
 	let mode = 'unknown';
 	let graphqlConnected = false;
+	let services: Service[] = [];
 
 	try {
-		const result = await graphql<{ mode: string }>(`query { mode }`);
+		const result = await graphql<{ mode: string; services: Service[] }>(`
+			query {
+				mode
+				services {
+					serviceType
+					moduleId
+					enabled
+				}
+			}
+		`);
 		if (result.data?.mode) {
 			mode = result.data.mode;
 			graphqlConnected = true;
+			services = result.data.services ?? [];
 		}
 	} catch {
 		// GraphQL unreachable — mode stays 'unknown'
@@ -18,5 +36,6 @@ export const load = async ({ cookies }) => {
 		theme: cookies.get('theme') ?? null,
 		mode,
 		graphqlConnected,
+		services,
 	};
 };

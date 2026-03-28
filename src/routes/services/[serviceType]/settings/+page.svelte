@@ -60,7 +60,6 @@
       .map(group => ({
         heading: group.name,
         rows: group.fields
-          .filter(f => f.envVar in configByEnvVar)
           .map(f => [{
             id: f.envVar,
             name: f.envVar,

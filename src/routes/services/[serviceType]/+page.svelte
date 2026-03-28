@@ -146,8 +146,8 @@
         {#if instance.metadata}
           {#each Object.entries(instance.metadata).filter(([key]) => key !== 'enabled') as [key, value]}
             <div class="detail-row">
-              <span class="label">{key}</span>
-              <span class="value">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+              <span class="label">{key === 'publishRate' ? 'Throughput' : key}</span>
+              <span class="value">{key === 'publishRate' ? `${value} metrics/s` : (typeof value === 'object' ? JSON.stringify(value) : String(value))}</span>
             </div>
           {/each}
         {/if}

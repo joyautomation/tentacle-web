@@ -45,13 +45,14 @@ interface GatewayConfig {
   gatewayId: string;
   devices: GatewayDevice[];
   variables: GatewayVariable[];
+  availableProtocols: string[];
   updatedAt: string;
 }
 
 export const load: PageServerLoad = async ({ params }) => {
   const { serviceType } = params;
 
-  // Gateway: load gateway config
+  // Gateway: load gateway config (includes availableProtocols from active services)
   if (serviceType === 'gateway') {
     try {
       const result = await graphql<{ gatewayConfig: GatewayConfig }>(`
@@ -60,6 +61,7 @@ export const load: PageServerLoad = async ({ params }) => {
             gatewayId
             devices { deviceId protocol config }
             variables { id description datatype deviceId tag bidirectional }
+            availableProtocols
             updatedAt
           }
         }

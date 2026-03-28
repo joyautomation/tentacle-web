@@ -5,12 +5,16 @@
   import "@joyautomation/salt/styles.scss";
   import "../app.scss";
   import { Toast } from "@joyautomation/salt";
+  import { Bars3 } from "@joyautomation/salt/icons";
   import ThemeSwitch from "$lib/components/ThemeSwitch.svelte";
+  import NavSidebar from "$lib/components/NavSidebar.svelte";
   import { onMount } from "svelte";
   import { onNavigate } from "$app/navigation";
   import { themeState, type Theme } from "./theme.svelte";
 
   const { data, children } = $props();
+
+  let sidebarOpen = $state(false);
 
   onMount(() => {
     themeState.initialize(data.theme as Theme | null);
@@ -28,12 +32,16 @@
   });
 </script>
 
+<NavSidebar services={data.services ?? []} bind:open={sidebarOpen} />
+
 <header class="app-header">
+  <button class="menu-toggle" onclick={() => (sidebarOpen = !sidebarOpen)} aria-label="Open navigation">
+    <Bars3 size="1.25rem" />
+  </button>
   <a href="/" class="logo">
     <img src="/logo.png" alt="Tentacle" />
   </a>
   <nav class="header-nav">
-    <!-- Menu items will go here -->
   </nav>
   <div class="header-actions">
     <span
@@ -69,6 +77,28 @@
     left: 0;
     right: 0;
     z-index: 100;
+  }
+
+  .menu-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--theme-text-muted);
+    padding: 0.375rem;
+    border-radius: var(--rounded-lg);
+    flex-shrink: 0;
+    margin-right: 0.5rem;
+    transition:
+      background 0.15s,
+      color 0.15s;
+
+    &:hover {
+      background: var(--theme-surface);
+      color: var(--theme-text);
+    }
   }
 
   .logo {

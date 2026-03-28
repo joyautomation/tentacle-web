@@ -259,6 +259,8 @@
 
   let showAddDevice = $state(false);
   let saving = $state(false);
+  const defaultProtocol = $derived(data.gatewayConfig?.availableProtocols?.[0] ?? 'ethernetip');
+
   let newDevice = $state({
     deviceId: '',
     protocol: 'ethernetip' as string,
@@ -270,10 +272,17 @@
     unitId: '1',
   });
 
+  // Sync default protocol when active protocols load
+  $effect(() => {
+    if (defaultProtocol && !data.gatewayConfig?.availableProtocols?.includes(newDevice.protocol)) {
+      newDevice.protocol = defaultProtocol;
+    }
+  });
+
   function resetNewDevice() {
     newDevice = {
       deviceId: '',
-      protocol: 'ethernetip',
+      protocol: defaultProtocol,
       host: '',
       port: '',
       endpointUrl: '',
@@ -347,12 +356,239 @@
     }
   }
 
-  const protocolLabels: Record<string, string> = {
-    ethernetip: 'EtherNet/IP',
-    opcua: 'OPC UA',
-    snmp: 'SNMP',
-    modbus: 'Modbus TCP',
+  // ═══════════════════════════════════════════════════════════════════
+  // Gateway device browse
+  // ═══════════════════════════════════════════════════════════════════
+
+  type BrowseItem = {
+    tag: string;
+    name: string;
+    datatype: string;
+    value: unknown;
+    protocolType: string;
   };
+
+  let browsingDeviceId: string | null = $state(null);
+  let browseResults: BrowseItem[] = $state([]);
+  let browseFilter = $state('');
+  let selectedTags: Set<string> = $state(new Set());
+  let browseLoading = $state(false);
+  let browseError: string | null = $state(null);
+  let importing = $state(false);
+  let browseProgress = $state('');
+  let browseProgressUnsub: (() => void) | null = null;
+  let browseRootOid = $state('.1.3.6.1.2.1');
+  let browseMibSelection = $state('mib2');
+
+  const mibOptions = [
+    { value: 'mib2', label: 'MIB-2 (All standard)', oid: '.1.3.6.1.2.1' },
+    { value: 'system', label: 'System (sysDescr, sysUpTime, ...)', oid: '.1.3.6.1.2.1.1' },
+    { value: 'interfaces', label: 'Interfaces (IF-MIB)', oid: '.1.3.6.1.2.1.2' },
+    { value: 'ip', label: 'IP (IP-MIB)', oid: '.1.3.6.1.2.1.4' },
+    { value: 'tcp', label: 'TCP (TCP-MIB)', oid: '.1.3.6.1.2.1.6' },
+    { value: 'udp', label: 'UDP (UDP-MIB)', oid: '.1.3.6.1.2.1.7' },
+    { value: 'bridge', label: 'Bridge / VLANs (BRIDGE-MIB)', oid: '.1.3.6.1.2.1.17' },
+    { value: 'host', label: 'Host Resources (CPU, Memory, Disk)', oid: '.1.3.6.1.2.1.25' },
+    { value: 'entity', label: 'Entity (Chassis, Modules)', oid: '.1.3.6.1.2.1.47' },
+    { value: 'enterprise', label: 'Enterprise / Vendor MIBs', oid: '.1.3.6.1.4.1' },
+    { value: 'all', label: 'Everything (.1.3.6.1)', oid: '.1.3.6.1' },
+    { value: 'custom', label: 'Custom OID...', oid: '' },
+  ];
+
+  const filteredBrowseResults = $derived(
+    browseFilter
+      ? browseResults.filter(item => {
+          const q = browseFilter.toLowerCase();
+          return item.name.toLowerCase().includes(q) || item.tag.toLowerCase().includes(q);
+        })
+      : browseResults
+  );
+
+  async function browseDevice(deviceId: string) {
+    const device = data.gatewayConfig?.devices?.find((d: { deviceId: string }) => d.deviceId === deviceId);
+    if (!device) {
+      console.error('Device not found:', deviceId);
+      return;
+    }
+
+    browsingDeviceId = deviceId;
+    browseResults = [];
+    browseFilter = '';
+    selectedTags = new Set();
+    browseError = null;
+    browseLoading = true;
+    browseProgress = 'Connecting to device...';
+
+    // Generate a browseId for progress tracking
+    const browseId = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+
+    // Start SSE subscription for progress updates
+    if (browseProgressUnsub) browseProgressUnsub();
+    try {
+      browseProgressUnsub = subscribe<{ gatewayBrowseProgress: { phase: string; discoveredCount: number; message: string } }>(
+        `subscription($browseId: String!, $protocol: String!) { gatewayBrowseProgress(browseId: $browseId, protocol: $protocol) { phase discoveredCount message } }`,
+        { browseId, protocol: device.protocol },
+        (result) => {
+          const p = result.gatewayBrowseProgress;
+          if (p) {
+            if (p.discoveredCount > 0) {
+              browseProgress = `Walking... ${p.discoveredCount} tags discovered`;
+            } else if (p.message) {
+              browseProgress = p.message;
+            }
+          }
+        },
+      );
+    } catch {
+      // SSE subscription failed — continue without progress updates
+      browseProgressUnsub = null;
+    }
+
+    try {
+      const input: Record<string, unknown> = {
+        deviceId,
+        protocol: device.protocol,
+        browseId,
+      };
+      // Add protocol-specific connection params from device config
+      const cfg = device.config as Record<string, unknown>;
+      if (cfg.host) input.host = cfg.host;
+      if (cfg.port) input.port = cfg.port;
+      if (cfg.endpointUrl) input.endpointUrl = cfg.endpointUrl;
+      if (cfg.version) input.version = cfg.version;
+      if (cfg.community) input.community = cfg.community;
+      if (device.protocol === 'snmp' && browseRootOid) input.rootOid = browseRootOid;
+
+      console.log('[browse] Sending mutation with input:', JSON.stringify(input));
+
+      const result = await graphql<{ browseGatewayDevice: { deviceId: string; protocol: string; items: BrowseItem[] } }>(`
+        mutation BrowseGatewayDevice($input: GatewayBrowseInput!) {
+          browseGatewayDevice(input: $input) {
+            deviceId
+            protocol
+            items {
+              tag
+              name
+              datatype
+              value
+              protocolType
+            }
+          }
+        }
+      `, { input });
+
+      console.log('[browse] Got result:', result.errors ? 'errors' : `${result.data?.browseGatewayDevice?.items?.length ?? 0} items`);
+
+      if (result.errors) {
+        browseError = result.errors[0].message;
+      } else if (result.data?.browseGatewayDevice) {
+        browseResults = result.data.browseGatewayDevice.items;
+        if (browseResults.length === 0) {
+          browseError = 'No tags discovered. Check that the device is reachable and the connection parameters are correct.';
+        }
+      } else {
+        browseError = 'No response from server';
+      }
+    } catch (err) {
+      console.error('[browse] Error:', err);
+      browseError = err instanceof Error ? err.message : 'Browse failed. Check that the device is reachable.';
+    } finally {
+      browseLoading = false;
+      if (browseProgressUnsub) {
+        browseProgressUnsub();
+        browseProgressUnsub = null;
+      }
+    }
+  }
+
+  function selectAllVisible() {
+    const next = new Set(selectedTags);
+    for (const item of filteredBrowseResults) {
+      next.add(item.tag);
+    }
+    selectedTags = next;
+  }
+
+  function deselectAll() {
+    selectedTags = new Set();
+  }
+
+  function toggleBrowseTag(tag: string) {
+    const next = new Set(selectedTags);
+    if (next.has(tag)) {
+      next.delete(tag);
+    } else {
+      next.add(tag);
+    }
+    selectedTags = next;
+  }
+
+  async function importSelected() {
+    if (!browsingDeviceId || selectedTags.size === 0) return;
+    importing = true;
+    try {
+      const variables = browseResults
+        .filter(item => selectedTags.has(item.tag))
+        .map(item => ({
+          id: item.name || item.tag,
+          deviceId: browsingDeviceId,
+          tag: item.tag,
+          datatype: item.datatype,
+          default: item.datatype === 'number' ? 0 : item.datatype === 'boolean' ? false : '',
+        }));
+
+      const result = await graphql(`
+        mutation SetGatewayVariables($gatewayId: String!, $variables: [GatewayVariableInput!]!) {
+          setGatewayVariables(gatewayId: $gatewayId, variables: $variables) {
+            gatewayId
+          }
+        }
+      `, { gatewayId: 'gateway', variables });
+
+      if (result.errors) {
+        saltState.addNotification({ message: result.errors[0].message, type: 'error' });
+      } else {
+        saltState.addNotification({ message: `Imported ${variables.length} variables`, type: 'success' });
+        closeBrowse();
+        await invalidateAll();
+      }
+    } catch (err) {
+      saltState.addNotification({ message: err instanceof Error ? err.message : 'Import failed', type: 'error' });
+    } finally {
+      importing = false;
+    }
+  }
+
+  function closeBrowse() {
+    if (browseProgressUnsub) {
+      browseProgressUnsub();
+      browseProgressUnsub = null;
+    }
+    browsingDeviceId = null;
+    browseResults = [];
+    browseFilter = '';
+    selectedTags = new Set();
+    browseError = null;
+    browseProgress = '';
+  }
+
+  const allProtocols = [
+    { value: 'ethernetip', label: 'EtherNet/IP' },
+    { value: 'opcua', label: 'OPC UA' },
+    { value: 'snmp', label: 'SNMP' },
+    { value: 'modbus', label: 'Modbus TCP' },
+  ] as const;
+
+  const protocolLabels: Record<string, string> = Object.fromEntries(
+    allProtocols.map(p => [p.value, p.label])
+  );
+
+  // Only show protocols that have an active module connected
+  const availableProtocols = $derived(
+    data.gatewayConfig?.availableProtocols?.length
+      ? allProtocols.filter(p => data.gatewayConfig!.availableProtocols.includes(p.value))
+      : []
+  );
 
   function formatDeviceInfo(device: { protocol: string; config: Record<string, unknown> }): string {
     switch (device.protocol) {
@@ -392,12 +628,15 @@
       </div>
       <div class="form-row">
         <label for="gw-protocol">Protocol</label>
-        <select id="gw-protocol" bind:value={newDevice.protocol}>
-          <option value="ethernetip">EtherNet/IP</option>
-          <option value="opcua">OPC UA</option>
-          <option value="snmp">SNMP</option>
-          <option value="modbus">Modbus TCP</option>
-        </select>
+        {#if availableProtocols.length === 0}
+          <p class="no-protocols">No protocol modules connected. Start a protocol service (EtherNet/IP, OPC UA, SNMP, or Modbus) to add devices.</p>
+        {:else}
+          <select id="gw-protocol" bind:value={newDevice.protocol}>
+            {#each availableProtocols as proto}
+              <option value={proto.value}>{proto.label}</option>
+            {/each}
+          </select>
+        {/if}
       </div>
       {#if newDevice.protocol === 'opcua'}
         <div class="form-row">
@@ -435,7 +674,7 @@
         </div>
       {/if}
       <div class="form-actions">
-        <button class="save-btn" onclick={addDevice} disabled={saving || !newDevice.deviceId}>
+        <button class="save-btn" onclick={addDevice} disabled={saving || !newDevice.deviceId || availableProtocols.length === 0}>
           {saving ? 'Saving...' : 'Add Device'}
         </button>
       </div>
@@ -450,6 +689,11 @@
           <span class="leaf-name">{device.deviceId}</span>
           <span class="device-host">{formatDeviceInfo(device)}</span>
           <span class="var-count">{data.gatewayConfig.variables.filter(v => v.deviceId === device.deviceId).length} vars</span>
+          {#if device.protocol !== 'modbus'}
+            <button class="browse-btn" onclick={() => { browsingDeviceId = device.deviceId; }} disabled={saving || browseLoading} title="Browse device tags">
+              Browse
+            </button>
+          {/if}
           <button class="delete-btn" onclick={() => removeDevice(device.deviceId)} disabled={saving} title="Remove device">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M18 6L6 18M6 6l12 12"/>
@@ -461,6 +705,83 @@
   {:else if !data.error && !showAddDevice}
     <div class="empty-state">
       <p>No devices configured. Click "Add Device" to connect to a scanner.</p>
+    </div>
+  {/if}
+
+  {#if browsingDeviceId}
+    {@const browsingDevice = data.gatewayConfig?.devices?.find((d: { deviceId: string }) => d.deviceId === browsingDeviceId)}
+    <div class="browse-panel">
+      <div class="browse-header">
+        <h2>Browse: {browsingDeviceId}</h2>
+        <button class="add-btn" onclick={closeBrowse}>Close</button>
+      </div>
+
+      {#if !browseLoading && browseResults.length === 0 && !browseError}
+        <div class="browse-start">
+          {#if browsingDevice?.protocol === 'snmp'}
+            <div class="form-row">
+              <label for="browse-mib">MIB</label>
+              <select id="browse-mib" bind:value={browseMibSelection} onchange={() => {
+                const opt = mibOptions.find(o => o.value === browseMibSelection);
+                if (opt && opt.oid) browseRootOid = opt.oid;
+              }}>
+                {#each mibOptions as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </div>
+            {#if browseMibSelection === 'custom'}
+              <div class="form-row">
+                <label for="browse-root-oid">Root OID</label>
+                <input id="browse-root-oid" type="text" bind:value={browseRootOid} placeholder=".1.3.6.1.2.1" />
+              </div>
+            {/if}
+          {/if}
+          <div class="form-actions">
+            <button class="save-btn" onclick={() => browseDevice(browsingDeviceId!)} disabled={browseLoading}>
+              Start Browse
+            </button>
+          </div>
+        </div>
+      {:else if browseLoading}
+        <div class="browse-loading">
+          <p>{browseProgress || 'Walking device...'}</p>
+        </div>
+      {:else if browseError}
+        <div class="error-box"><p>{browseError}</p></div>
+      {:else}
+        <div class="browse-toolbar">
+          <input type="text" bind:value={browseFilter} placeholder="Filter tags/OIDs..." class="browse-filter" />
+          <span class="browse-counts">{filteredBrowseResults.length} of {browseResults.length}</span>
+          <span class="browse-counts">{selectedTags.size} selected</span>
+          <button class="browse-action" onclick={selectAllVisible}>Select All Visible</button>
+          <button class="browse-action" onclick={deselectAll}>Deselect All</button>
+          <button class="save-btn" onclick={importSelected} disabled={selectedTags.size === 0 || importing}>
+            {importing ? 'Importing...' : `Import ${selectedTags.size} Selected`}
+          </button>
+        </div>
+
+        <div class="browse-results">
+          {#each filteredBrowseResults as item}
+            <label class="browse-item">
+              <input type="checkbox" checked={selectedTags.has(item.tag)} onchange={() => toggleBrowseTag(item.tag)} />
+              <span class="browse-item-info">
+                <span class="browse-item-label">{item.name && item.name !== item.tag ? item.name : item.tag}</span>
+                {#if item.name && item.name !== item.tag}
+                  <span class="browse-item-oid">{item.tag}</span>
+                {/if}
+              </span>
+              <span class="leaf-value">{formatValue(item.value)}</span>
+              <span class="leaf-type">{item.protocolType || item.datatype}</span>
+            </label>
+          {/each}
+          {#if filteredBrowseResults.length === 0 && browseResults.length > 0}
+            <div class="empty-state"><p>No items match the filter.</p></div>
+          {:else if browseResults.length === 0}
+            <div class="empty-state"><p>No tags discovered on this device.</p></div>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -999,5 +1320,160 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+  }
+
+  .browse-btn {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border: 1px solid var(--theme-border);
+    border-radius: var(--rounded-sm);
+    background: var(--theme-surface);
+    color: var(--theme-text);
+    cursor: pointer;
+    flex-shrink: 0;
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--theme-text) 5%, var(--theme-surface));
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  .browse-panel {
+    margin-top: 1.5rem;
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-border);
+    border-radius: var(--rounded-lg);
+    overflow: hidden;
+  }
+
+  .browse-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--theme-border);
+
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0;
+      color: var(--theme-text);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+  }
+
+  .browse-loading {
+    padding: 3rem 2rem;
+    text-align: center;
+
+    p {
+      color: var(--theme-text-muted);
+      font-size: 0.875rem;
+    }
+  }
+
+  .browse-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 50%, transparent);
+    flex-wrap: wrap;
+  }
+
+  .browse-filter {
+    flex: 1;
+    min-width: 200px;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.8125rem;
+    font-family: 'IBM Plex Mono', monospace;
+    border: 1px solid var(--theme-border);
+    border-radius: var(--rounded-md);
+    background: var(--theme-bg, #000);
+    color: var(--theme-text);
+  }
+
+  .browse-counts {
+    font-size: 0.75rem;
+    color: var(--theme-text-muted);
+    white-space: nowrap;
+  }
+
+  .browse-action {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border: 1px solid var(--theme-border);
+    border-radius: var(--rounded-sm);
+    background: var(--theme-surface);
+    color: var(--theme-text);
+    cursor: pointer;
+    white-space: nowrap;
+
+    &:hover {
+      background: color-mix(in srgb, var(--theme-text) 5%, var(--theme-surface));
+    }
+  }
+
+  .browse-results {
+    max-height: 500px;
+    overflow-y: auto;
+  }
+
+  .browse-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 1rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+
+    &:not(:last-child) {
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 30%, transparent);
+    }
+
+    &:hover {
+      background: color-mix(in srgb, var(--theme-text) 3%, transparent);
+    }
+
+    input[type="checkbox"] {
+      flex-shrink: 0;
+    }
+  }
+
+  .browse-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .browse-item-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    color: var(--theme-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .browse-item-oid {
+    font-size: 0.6875rem;
+    color: var(--theme-text-muted);
+    font-family: 'IBM Plex Mono', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .browse-start {
+    padding: 1.25rem;
   }
 </style>

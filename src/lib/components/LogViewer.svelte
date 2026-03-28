@@ -9,6 +9,7 @@
     serviceType: string;
     moduleId: string;
     logger: string | null;
+    _id?: number;
   }
 
   interface Props {
@@ -21,11 +22,12 @@
   const MAX_LINES = 500;
 
   let logs = $state<LogEntry[]>([]);
+  let logIdCounter = 0;
 
   // Initialize from SSR data (reverse to show newest first)
   $effect(() => {
     if (initialLogs.length > 0 && logs.length === 0) {
-      logs = [...initialLogs].reverse();
+      logs = [...initialLogs].reverse().map(l => ({ ...l, _id: logIdCounter++ }));
     }
   });
   let showDebug = $state(false);
@@ -68,6 +70,27 @@
     }
   }
 
+  // Batch incoming logs and flush on animation frame to avoid per-message re-renders
+  let pendingLogs: LogEntry[] = [];
+  let flushScheduled = false;
+
+  function flushPendingLogs() {
+    if (pendingLogs.length === 0) return;
+    const batch = pendingLogs;
+    pendingLogs = [];
+    flushScheduled = false;
+    // Prepend batch (newest first) and trim
+    logs = [...batch.reverse(), ...logs].slice(0, MAX_LINES);
+  }
+
+  function enqueueLog(entry: LogEntry) {
+    pendingLogs.push({ ...entry, _id: logIdCounter++ });
+    if (!flushScheduled) {
+      flushScheduled = true;
+      requestAnimationFrame(flushPendingLogs);
+    }
+  }
+
   onMount(() => {
     // Subscribe to real-time log stream
     unsubscribe = subscribe<{ serviceLogs: LogEntry }>(
@@ -83,13 +106,15 @@
       }`,
       { serviceType },
       (data) => {
-        logs = [data.serviceLogs, ...logs].slice(0, MAX_LINES);
+        enqueueLog(data.serviceLogs);
       }
     );
   });
 
   onDestroy(() => {
     unsubscribe?.();
+    pendingLogs = [];
+    flushScheduled = false;
   });
 </script>
 
@@ -124,7 +149,7 @@
         <p>No log entries yet. Logs will appear here in real-time as the service runs.</p>
       </div>
     {:else}
-      {#each filteredLogs as entry}
+      {#each filteredLogs as entry (entry._id)}
         <div class="log-line">
           <span class="log-time">{formatTime(entry.timestamp)}</span>
           <span class="log-level" style="color: {levelColor(entry.level)}">{entry.level.toUpperCase().padEnd(5)}</span>

@@ -66,6 +66,7 @@
       case 'web': return 40;
       case 'ethernetip':
       case 'ethernetip-server':
+      case 'gateway':
       case 'mqtt':
       case 'plc':
       case 'snmp': return 35;
@@ -136,6 +137,7 @@
         switch (service.serviceType) {
           case 'ethernetip': name = 'EtherNet/IP'; break;
           case 'ethernetip-server': name = 'EIP Server'; break;
+          case 'gateway': name = service.moduleId; break;
           case 'mqtt': name = 'MQTT'; break;
           case 'plc': name = service.moduleId; break;
           case 'snmp': name = 'SNMP'; break;
@@ -206,7 +208,7 @@
     // Mark data-flow links as active and set flow direction
     // EtherNet/IP: data flows from device → EIP → NATS (inbound to NATS)
     // MQTT: data flows from NATS → MQTT (outbound from NATS)
-    const dataFlowTypes = new Set<NodeType>(['ethernetip', 'mqtt', 'snmp', 'plc', 'device']);
+    const dataFlowTypes = new Set<NodeType>(['ethernetip', 'gateway', 'mqtt', 'snmp', 'plc', 'device']);
     for (const l of links) {
       const srcId = typeof l.source === 'string' ? l.source : (l.source as NodeDatum).id;
       const tgtId = typeof l.target === 'string' ? l.target : (l.target as NodeDatum).id;
@@ -219,8 +221,8 @@
         if (tgt.type === 'device' || src.type === 'device') {
           // device → scanner: flow from device toward NATS
           l.flowDirection = -1;
-        } else if (tgt.type === 'plc' || src.type === 'plc') {
-          // PLC ↔ NATS: bidirectional (reads from scanners, writes commands back)
+        } else if (tgt.type === 'plc' || src.type === 'plc' || tgt.type === 'gateway' || src.type === 'gateway') {
+          // PLC/Gateway ↔ NATS: bidirectional (reads from scanners, writes commands back)
           l.flowDirection = 0;
         } else if (tgt.type === 'ethernetip' || src.type === 'ethernetip') {
           // EIP → NATS: inbound
@@ -504,6 +506,7 @@
           case 'web': return 'WEB';
           case 'ethernetip': return 'EIP';
           case 'ethernetip-server': return 'EIPS';
+          case 'gateway': return 'GW';
           case 'mqtt': return 'MQTT';
           case 'plc': return 'PLC';
           case 'network': return 'NET';
