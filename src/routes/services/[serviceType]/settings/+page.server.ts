@@ -55,7 +55,10 @@ export const actions: Actions = {
         }>(`
           mutation($moduleId: String!, $envVar: String!, $value: String!) {
             updateServiceConfig(moduleId: $moduleId, envVar: $envVar, value: $value) {
-              key envVar value moduleId
+              key
+              envVar
+              value
+              moduleId
             }
           }
         `, {

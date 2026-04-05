@@ -1,52 +1,11 @@
 import type { PageServerLoad } from './$types';
 import { graphql } from '$lib/server/graphql';
-
-interface Variable {
-  variableId: string;
-  value: unknown;
-  datatype: string;
-  cipType: string | null;
-  udtType: string | null;
-  quality: string;
-  moduleId: string;
-  deviceId: string | null;
-  lastUpdated: string;
-}
+import type { Variable, ActiveDevice, GatewayConfig } from '$lib/types/gateway';
 
 interface Service {
   serviceType: string;
   moduleId: string;
   metadata: Record<string, unknown> | null;
-}
-
-interface ActiveDevice {
-  deviceId: string;
-  host: string;
-  port: number;
-  tagCount: number;
-}
-
-interface GatewayDevice {
-  deviceId: string;
-  protocol: string;
-  config: Record<string, unknown>;
-}
-
-interface GatewayVariable {
-  id: string;
-  description: string | null;
-  datatype: string;
-  deviceId: string;
-  tag: string;
-  bidirectional: boolean | null;
-}
-
-interface GatewayConfig {
-  gatewayId: string;
-  devices: GatewayDevice[];
-  variables: GatewayVariable[];
-  availableProtocols: string[];
-  updatedAt: string;
 }
 
 export const load: PageServerLoad = async ({ params }) => {
@@ -59,8 +18,9 @@ export const load: PageServerLoad = async ({ params }) => {
         query GatewayConfig($gatewayId: String!) {
           gatewayConfig(gatewayId: $gatewayId) {
             gatewayId
-            devices { deviceId protocol config }
+            devices { deviceId protocol config scanRate deadband { value minTime maxTime } disableRBE }
             variables { id description datatype deviceId tag bidirectional }
+            udtVariables { id deviceId tag templateName }
             availableProtocols
             updatedAt
           }

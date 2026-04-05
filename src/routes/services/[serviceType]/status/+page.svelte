@@ -710,7 +710,7 @@
   }
 
   .flow-label {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;

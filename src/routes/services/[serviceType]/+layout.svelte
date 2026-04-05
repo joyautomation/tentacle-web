@@ -27,6 +27,7 @@
     if (path.endsWith('/logs')) return 'logs';
     if (path.endsWith('/traffic')) return 'traffic';
     if (path.endsWith('/info')) return 'info';
+    if (path.endsWith('/tag-config')) return 'tag-config';
     if (path.endsWith('/status')) return 'status';
     if (path.endsWith('/config')) return 'config';
     if (path.endsWith('/settings')) return 'settings';
@@ -123,7 +124,7 @@
       <a href="/services/{serviceType}/devices" class="tab" class:active={currentTab() === 'devices'}>
         Devices
       </a>
-      <a href="/services/{serviceType}/info" class="tab" class:active={currentTab() === 'info'}>
+      <a href="/services/{serviceType}/tag-config" class="tab" class:active={currentTab() === 'tag-config'}>
         Variables
       </a>
       <a href="/services/{serviceType}/logs" class="tab" class:active={currentTab() === 'logs'}>

@@ -309,7 +309,7 @@
     border-radius: var(--rounded-sm);
     background: var(--badge-amber-bg);
     color: var(--badge-amber-text);
-    font-size: 0.5625rem;
+    font-size: 0.75rem;
     font-weight: 700;
     flex-shrink: 0;
   }
