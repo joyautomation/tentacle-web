@@ -1,0 +1,65 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run unit & component tests with coverage
+        run: npx vitest run --coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload visual regression snapshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-diff
+          path: tests/e2e/visual-regression.test.ts-snapshots/
+          retention-days: 7
