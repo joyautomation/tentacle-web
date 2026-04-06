@@ -5,7 +5,7 @@
   import { fly, slide } from 'svelte/transition';
   import { untrack } from 'svelte';
   import { state as saltState } from '@joyautomation/salt';
-  import { ArrowPath, ExclamationTriangle } from '@joyautomation/salt/icons';
+  import { ArrowPath, ExclamationTriangle, PencilSquare, Signal } from '@joyautomation/salt/icons';
   import { mapDatatype, type RbeState, type InstanceInfo, type ActiveSection } from './utils';
   import TemplateDefaultsTab from './TemplateDefaultsTab.svelte';
   import InstancesTab from './InstancesTab.svelte';
@@ -564,9 +564,16 @@
     const dirty = new Set<string>();
     // Templates: dirty if any member changed or any instance of that template changed
     for (const name of dirtyTemplateMemberMap.keys()) dirty.add(`t::${name}`);
-    // Instances: map instance keys back to template names (with overrides)
+    // Instances: map dirty instance keys to their template names
+    // Use config instances directly (they have templateName), with browse cache as fallback
+    for (const inst of allConfigInstances) {
+      const pubKey = `${inst.deviceId}::${inst.tag}`;
+      if (dirtyInstanceKeys.has(pubKey)) {
+        dirty.add(`t::${inst.templateName}`);
+      }
+    }
+    // Also check browse cache for instances not yet in config (newly checked)
     for (const key of dirtyInstanceKeys) {
-      // key is "deviceId::tag", find which template this belongs to
       const [deviceId, tag] = key.split('::');
       for (const cache of browseCaches ?? []) {
         if (cache.deviceId !== deviceId) continue;
@@ -580,6 +587,24 @@
       dirty.add(`a::${deviceId}`);
     }
     return dirty;
+  });
+
+  /** Sidebar: which templates have at least one MQTT-published instance */
+  const publishedTemplateSections = $derived.by((): Set<string> => {
+    const published = new Set<string>();
+    for (const inst of allConfigInstances) {
+      published.add(inst.templateName);
+    }
+    return published;
+  });
+
+  /** Sidebar: which devices have at least one MQTT-published atomic tag */
+  const publishedAtomicDevices = $derived.by((): Set<string> => {
+    const published = new Set<string>();
+    for (const v of gatewayConfig?.variables ?? []) {
+      published.add(v.deviceId);
+    }
+    return published;
   });
 
   /** Sidebar: which devices have any dirty atomic children */
@@ -1379,14 +1404,15 @@
               class:active={activeSection?.kind === 'template' && activeSection.templateName === tmpl.name}
               onclick={() => { activeSection = { kind: 'template', templateName: tmpl.name }; activeTab = 'instances'; }}
             >
-              {#if dirtySidebarSections.has(`t::${tmpl.name}`)}<span class="dirty-dot" transition:slide|local={{ axis: 'x', duration: 150 }}></span>{/if}
+              {#if dirtySidebarSections.has(`t::${tmpl.name}`)}<span class="dirty-icon" title="Unsaved changes" transition:slide|local={{ axis: 'x', duration: 150 }}><PencilSquare size="1rem" /></span>{/if}
               <span class="tc-side-icon t-icon">T</span>
               <span class="tc-side-name">{tmpl.name}</span>
               {#if tmpl.hasConflict}
                 <span class="conflict-icon" title="Template members differ across devices — first device's definition will be used">
-                  <ExclamationTriangle size="0.875rem" />
+                  <ExclamationTriangle size="1rem" />
                 </span>
               {/if}
+              {#if publishedTemplateSections.has(tmpl.name)}<span class="mqtt-icon" title="Has MQTT-published instances"><Signal size="1rem" /></span>{/if}
               <span class="tc-side-count">{tmpl.totalInstanceCount}</span>
             </button>
           {/each}
@@ -1398,7 +1424,7 @@
           {@const cache = browseCaches.find(c => c.deviceId === device.deviceId)}
           {@const pct = isBusy && browseState && browseState.totalCount > 0 ? Math.round((browseState.discoveredCount / browseState.totalCount) * 100) : 0}
           <div class="tc-side-head">
-            {#if dirtyDevices.has(device.deviceId)}<span class="dirty-dot" transition:slide|local={{ axis: 'x', duration: 150 }}></span>{/if}
+            {#if dirtyDevices.has(device.deviceId)}<span class="dirty-icon" title="Unsaved changes" transition:slide|local={{ axis: 'x', duration: 150 }}><PencilSquare size="1rem" /></span>{/if}
             <span class="side-device-name">{device.deviceId}</span>
             <span class="side-proto">{device.protocol}</span>
             <span class="side-browse-area">
@@ -1430,9 +1456,10 @@
               class:active={activeSection?.kind === 'atomic' && activeSection.deviceId === device.deviceId}
               onclick={() => { activeSection = { kind: 'atomic', deviceId: device.deviceId }; }}
             >
-              {#if dirtySidebarSections.has(`a::${device.deviceId}`)}<span class="dirty-dot" transition:slide|local={{ axis: 'x', duration: 150 }}></span>{/if}
+              {#if dirtySidebarSections.has(`a::${device.deviceId}`)}<span class="dirty-icon" title="Unsaved changes" transition:slide|local={{ axis: 'x', duration: 150 }}><PencilSquare size="1rem" /></span>{/if}
               <span class="tc-side-icon a-icon">A</span>
               <span class="tc-side-name">Atomic Tags</span>
+              {#if publishedAtomicDevices.has(device.deviceId)}<span class="mqtt-icon" title="Has MQTT-published tags"><Signal size="1rem" /></span>{/if}
               <span class="tc-side-count">{device.atomicCount}</span>
             </button>
           {/if}
@@ -1708,6 +1735,11 @@
     color: #f59e0b;
     :global(svg) { flex-shrink: 0; }
   }
+  .mqtt-icon {
+    display: inline-flex; align-items: center; flex-shrink: 0;
+    color: var(--badge-teal-text, #2dd4bf);
+    :global(svg) { flex-shrink: 0; }
+  }
 
   .tc-side-empty {
     padding: 0.5rem 1rem 0.625rem; font-size: 0.6875rem; color: var(--theme-text-muted);
@@ -1719,10 +1751,11 @@
     &:hover { opacity: 0.8; }
   }
 
-  .dirty-dot {
-    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-    background: #f59e0b;
+  .dirty-icon {
+    display: inline-flex; align-items: center; flex-shrink: 0;
+    color: #f59e0b;
     overflow: hidden;
+    :global(svg) { flex-shrink: 0; }
   }
 
   .tc-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }

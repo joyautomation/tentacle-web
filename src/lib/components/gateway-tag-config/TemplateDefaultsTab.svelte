@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { GatewayUdtTemplateMember, DeadBandConfig } from '$lib/types/gateway';
 	import { slide } from 'svelte/transition';
+	import { PencilSquare } from '@joyautomation/salt/icons';
 	import InlineEditCell from './InlineEditCell.svelte';
 	import TabToolbar from './TabToolbar.svelte';
 
@@ -110,7 +111,7 @@
 			{@const hasDeadband = member.defaultDeadband != null}
 			<tr class:row-dirty={dirtyMembers.has(member.name)}>
 				<td data-label="Member">
-					{#if dirtyMembers.has(member.name)}<span class="dirty-dot" transition:slide|local={{ axis: 'x', duration: 150 }}></span>{/if}
+					{#if dirtyMembers.has(member.name)}<span class="dirty-icon" title="Unsaved changes" transition:slide|local={{ axis: 'x', duration: 150 }}><PencilSquare size="1rem" /></span>{/if}
 					<span class="mono item-name">{member.name}</span>
 				</td>
 				<td data-label="Type">

@@ -4,7 +4,7 @@
   import { invalidateAll } from '$app/navigation';
   import { slide } from 'svelte/transition';
   import { state as saltState } from '@joyautomation/salt';
-  import { ChevronRight } from '@joyautomation/salt/icons';
+  import { ChevronRight, PencilSquare } from '@joyautomation/salt/icons';
 
   let { gatewayConfig, browseCaches, browseStates, error }: {
     gatewayConfig: GatewayConfig | null;
@@ -648,7 +648,7 @@
                         <span class="leaf-name">{baseTag}</span>
                       </label>
                       {#if dirty}
-                        <span class="dirty-dot" title={checked ? 'Will be added' : 'Will be removed'}></span>
+                        <span class="dirty-icon" title={checked ? 'Will be added' : 'Will be removed'}><PencilSquare size="1rem" /></span>
                       {/if}
                     </div>
                   {/each}
@@ -698,7 +698,7 @@
                         </button>
                       {/if}
                       {#if dirty}
-                        <span class="dirty-dot" title={checked ? 'Will be added' : 'Will be removed'}></span>
+                        <span class="dirty-icon" title={checked ? 'Will be added' : 'Will be removed'}><PencilSquare size="1rem" /></span>
                       {/if}
                     </div>
                     {#if editingRbeTag === key}
@@ -946,7 +946,7 @@
     }
   }
 
-  .dirty-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--badge-amber-text, #f59e0b); flex-shrink: 0; }
+  .dirty-icon { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--badge-amber-text, #f59e0b); :global(svg) { flex-shrink: 0; } }
 
   .udt-fields-summary {
     border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 30%, transparent);

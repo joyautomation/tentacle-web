@@ -2,6 +2,7 @@
 	import type { BrowseCache, DeadBandConfig } from '$lib/types/gateway';
 	import { mapDatatype, type RbeState } from './utils';
 	import { slide } from 'svelte/transition';
+	import { PencilSquare } from '@joyautomation/salt/icons';
 	import InlineEditCell from './InlineEditCell.svelte';
 	import TabToolbar from './TabToolbar.svelte';
 
@@ -182,7 +183,7 @@
 				{@const isDisabled = !!rbe.disableRBE}
 				<tr class:row-override={hasOverride} class:row-dirty={dirtyAtomicKeys.has(key)}>
 					<td data-label="Tag">
-						{#if dirtyAtomicKeys.has(key)}<span class="dirty-dot" transition:slide|local={{ axis: 'x', duration: 150 }}></span>{/if}
+						{#if dirtyAtomicKeys.has(key)}<span class="dirty-icon" title="Unsaved changes" transition:slide|local={{ axis: 'x', duration: 150 }}><PencilSquare size="1rem" /></span>{/if}
 						<span class="mono item-name">{item.tag}</span>
 					</td>
 					<td data-label="Type">
